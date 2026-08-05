@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isValidAddress } from "@/lib/utils/address";
 import { getTaskById } from "@/services/marketplace/mockTasks";
 import { getOrCreateUserByWallet, getUserByWallet } from "@/services/users/walletUser";
 import {
@@ -6,8 +7,7 @@ import {
   getMyTasks,
   DuplicateApplicationError,
 } from "@/services/applications/applicationsService";
-
-const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+import { createApplicationSubmittedNotification } from "@/services/dashboard/mockNotificationService";
 
 function extractString(body: unknown, key: string): string | undefined {
   if (typeof body !== "object" || body === null || !(key in body)) {
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const wallet = searchParams.get("wallet");
 
-  if (!wallet || !ADDRESS_RE.test(wallet)) {
+  if (!wallet || !isValidAddress(wallet)) {
     return NextResponse.json(
       { error: "A valid wallet address is required." },
       { status: 400 }
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  if (!walletAddress || !ADDRESS_RE.test(walletAddress)) {
+  if (!walletAddress || !isValidAddress(walletAddress)) {
     return NextResponse.json(
       { error: "A valid walletAddress is required." },
       { status: 400 }
@@ -70,7 +70,6 @@ export async function POST(request: Request) {
 
   try {
     await createApplication(taskId, user.id);
-    return NextResponse.json({ status: "created" }, { status: 201 });
   } catch (err) {
     if (err instanceof DuplicateApplicationError) {
       return NextResponse.json(
@@ -85,4 +84,12 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+
+  try {
+    await createApplicationSubmittedNotification(user.id, task.title);
+  } catch (err) {
+    console.error("Failed to create application-submitted notification:", err);
+  }
+
+  return NextResponse.json({ status: "created" }, { status: 201 });
 }

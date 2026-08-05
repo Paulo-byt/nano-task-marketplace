@@ -1,9 +1,6 @@
-import { getNotifications } from "@/services/dashboard/mockNotificationService";
-import { NotificationList } from "@/components/dashboard/NotificationList";
+import { NotificationsContainer } from "@/components/dashboard/NotificationsContainer";
 
 export default function NotificationsPage() {
-  const notifications = getNotifications();
-
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
       <div>
@@ -15,7 +12,7 @@ export default function NotificationsPage() {
         </p>
       </div>
 
-      <NotificationList notifications={notifications} />
+      <NotificationsContainer />
     </div>
   );
 }
