@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Task } from "@/types/task";
+import { ConfirmApplicationButton } from "@/components/marketplace/ConfirmApplicationButton";
 
 export function ApplyConfirmation({ task }: { task: Task }) {
   return (
@@ -9,9 +10,9 @@ export function ApplyConfirmation({ task }: { task: Task }) {
           Apply for this task
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          This is a mock application flow — no wallet transaction, payment,
-          or backend submission happens yet. Confirming just simulates what
-          applying will feel like once it&apos;s wired up.
+          Confirming creates a real application in the database. Wallet-based
+          sign-in and on-chain payment aren&apos;t wired up yet, so this uses
+          a temporary demo identity behind the scenes.
         </p>
       </div>
 
@@ -51,12 +52,7 @@ export function ApplyConfirmation({ task }: { task: Task }) {
       </dl>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <Link
-          href="/dashboard/my-tasks"
-          className="inline-flex flex-1 items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90"
-        >
-          Confirm Application
-        </Link>
+        <ConfirmApplicationButton taskId={task.id} />
         <Link
           href={`/marketplace/${task.id}`}
           className="inline-flex flex-1 items-center justify-center rounded-full border border-black/10 px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
