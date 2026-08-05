@@ -3,21 +3,25 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useWallet } from "@/hooks/useWallet";
+import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
 
 type Status = "idle" | "loading" | "duplicate" | "error";
 
 export function ConfirmApplicationButton({ taskId }: { taskId: string }) {
   const router = useRouter();
+  const { address, isConnected } = useWallet();
   const [status, setStatus] = useState<Status>("idle");
 
   const handleConfirm = async () => {
+    if (!address) return;
     setStatus("loading");
 
     try {
       const response = await fetch("/api/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId }),
+        body: JSON.stringify({ taskId, walletAddress: address }),
       });
 
       if (response.status === 201) {
@@ -35,6 +39,17 @@ export function ConfirmApplicationButton({ taskId }: { taskId: string }) {
       setStatus("error");
     }
   };
+
+  if (!isConnected || !address) {
+    return (
+      <div className="flex flex-1 flex-col items-start gap-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Connect your wallet to apply for this task.
+        </p>
+        <ConnectWalletButton />
+      </div>
+    );
+  }
 
   if (status === "duplicate") {
     return (

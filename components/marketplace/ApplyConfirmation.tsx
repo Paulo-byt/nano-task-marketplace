@@ -10,9 +10,8 @@ export function ApplyConfirmation({ task }: { task: Task }) {
           Apply for this task
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Confirming creates a real application in the database. Wallet-based
-          sign-in and on-chain payment aren&apos;t wired up yet, so this uses
-          a temporary demo identity behind the scenes.
+          Confirming creates a real application tied to your connected
+          wallet address. No on-chain transaction or payment happens yet.
         </p>
       </div>
 

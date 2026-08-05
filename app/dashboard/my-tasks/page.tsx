@@ -1,13 +1,6 @@
-import { getMyTasks } from "@/services/applications/applicationsService";
-import { getDemoUser } from "@/services/users/demoUser";
-import { MyTasksList } from "@/components/dashboard/MyTasksList";
+import { MyTasksContainer } from "@/components/dashboard/MyTasksContainer";
 
-export const dynamic = "force-dynamic";
-
-export default async function MyTasksPage() {
-  const demoUser = await getDemoUser();
-  const tasks = await getMyTasks(demoUser.id);
-
+export default function MyTasksPage() {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
       <div>
@@ -19,7 +12,7 @@ export default async function MyTasksPage() {
         </p>
       </div>
 
-      <MyTasksList tasks={tasks} />
+      <MyTasksContainer />
     </div>
   );
 }

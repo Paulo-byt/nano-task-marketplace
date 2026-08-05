@@ -1,10 +1,41 @@
 import { NextResponse } from "next/server";
 import { getTaskById } from "@/services/marketplace/mockTasks";
-import { getDemoUser } from "@/services/users/demoUser";
+import { getOrCreateUserByWallet, getUserByWallet } from "@/services/users/walletUser";
 import {
   createApplication,
+  getMyTasks,
   DuplicateApplicationError,
 } from "@/services/applications/applicationsService";
+
+const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+
+function extractString(body: unknown, key: string): string | undefined {
+  if (typeof body !== "object" || body === null || !(key in body)) {
+    return undefined;
+  }
+  const value = (body as Record<string, unknown>)[key];
+  return typeof value === "string" && value.trim() !== "" ? value : undefined;
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const wallet = searchParams.get("wallet");
+
+  if (!wallet || !ADDRESS_RE.test(wallet)) {
+    return NextResponse.json(
+      { error: "A valid wallet address is required." },
+      { status: 400 }
+    );
+  }
+
+  const user = await getUserByWallet(wallet);
+  if (!user) {
+    return NextResponse.json({ tasks: [] });
+  }
+
+  const tasks = await getMyTasks(user.id);
+  return NextResponse.json({ tasks });
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -14,14 +45,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const taskId =
-    typeof body === "object" && body !== null && "taskId" in body
-      ? (body as { taskId?: unknown }).taskId
-      : undefined;
+  const taskId = extractString(body, "taskId");
+  const walletAddress = extractString(body, "walletAddress");
 
-  if (typeof taskId !== "string" || taskId.trim() === "") {
+  if (!taskId) {
     return NextResponse.json(
       { error: "taskId is required." },
+      { status: 400 }
+    );
+  }
+  if (!walletAddress || !ADDRESS_RE.test(walletAddress)) {
+    return NextResponse.json(
+      { error: "A valid walletAddress is required." },
       { status: 400 }
     );
   }
@@ -31,10 +66,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
   }
 
-  const demoUser = await getDemoUser();
+  const user = await getOrCreateUserByWallet(walletAddress);
 
   try {
-    await createApplication(taskId, demoUser.id);
+    await createApplication(taskId, user.id);
     return NextResponse.json({ status: "created" }, { status: 201 });
   } catch (err) {
     if (err instanceof DuplicateApplicationError) {
