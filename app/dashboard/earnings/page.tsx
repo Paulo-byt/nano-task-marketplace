@@ -1,14 +1,6 @@
-import {
-  getEarningsSummary,
-  getPayoutHistory,
-} from "@/services/dashboard/mockEarningsService";
-import { EarningsSummaryGrid } from "@/components/dashboard/EarningsSummaryGrid";
-import { PayoutHistory } from "@/components/dashboard/PayoutHistory";
+import { EarningsContainer } from "@/components/dashboard/EarningsContainer";
 
 export default function EarningsPage() {
-  const summary = getEarningsSummary();
-  const payouts = getPayoutHistory();
-
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
       <div>
@@ -20,8 +12,7 @@ export default function EarningsPage() {
         </p>
       </div>
 
-      <EarningsSummaryGrid summary={summary} />
-      <PayoutHistory payouts={payouts} />
+      <EarningsContainer />
     </div>
   );
 }
