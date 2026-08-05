@@ -1,6 +1,12 @@
 import type { SettingsSectionData } from "@/types/dashboard";
 
-const MOCK_SETTINGS_SECTIONS: SettingsSectionData[] = [
+// None of these sections have per-wallet backing data in the schema -- there
+// is no preference-storage table, and this migration explicitly excludes
+// adding new tables or editable settings. The content is the same for every
+// wallet; getSettingsSections() is only called once the API route has
+// resolved (and, per the no-auto-create rule, not created) the wallet's
+// user row, matching the shape every other dashboard service follows.
+const SETTINGS_SECTIONS: SettingsSectionData[] = [
   {
     title: "Appearance",
     description: "Display preferences for the marketplace interface.",
@@ -41,5 +47,5 @@ const MOCK_SETTINGS_SECTIONS: SettingsSectionData[] = [
 ];
 
 export function getSettingsSections(): SettingsSectionData[] {
-  return MOCK_SETTINGS_SECTIONS;
+  return SETTINGS_SECTIONS;
 }
