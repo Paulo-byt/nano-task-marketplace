@@ -1,7 +1,11 @@
-import { MOCK_TASKS } from "@/services/marketplace/mockTasks";
+import { getTasks } from "@/services/marketplace/mockTasks";
 import { MarketplaceBrowser } from "@/components/marketplace/MarketplaceBrowser";
 
-export default function MarketplacePage() {
+export const dynamic = "force-dynamic";
+
+export default async function MarketplacePage() {
+  const tasks = await getTasks();
+
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-10">
       <div className="mb-8">
@@ -13,7 +17,7 @@ export default function MarketplacePage() {
         </p>
       </div>
 
-      <MarketplaceBrowser tasks={MOCK_TASKS} />
+      <MarketplaceBrowser tasks={tasks} />
     </div>
   );
 }

@@ -9,7 +9,7 @@ export default async function TaskDetailsPage({
   params: Promise<{ taskId: string }>;
 }) {
   const { taskId } = await params;
-  const task = getTaskById(taskId);
+  const task = await getTaskById(taskId);
 
   if (!task) {
     notFound();
