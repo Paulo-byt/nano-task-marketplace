@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
-import { isValidAddress } from "@/lib/utils/address";
-import { getUserByWallet } from "@/services/users/walletUser";
+import { cookies } from "next/headers";
+import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getNotifications } from "@/services/dashboard/mockNotificationService";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const wallet = searchParams.get("wallet");
-
-  if (!wallet || !isValidAddress(wallet)) {
-    return NextResponse.json(
-      { error: "A valid wallet address is required." },
-      { status: 400 }
-    );
+export async function GET() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionId) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  const user = await getUserByWallet(wallet);
-  if (!user) {
-    return NextResponse.json({ notifications: [] });
+  const sessionUser = await getSessionUser(sessionId);
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  const notifications = await getNotifications(user.id);
+  const notifications = await getNotifications(sessionUser.id);
   return NextResponse.json({ notifications });
 }

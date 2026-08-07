@@ -5,10 +5,8 @@ import { useWallet } from "@/hooks/useWallet";
 import { NotificationList } from "@/components/dashboard/NotificationList";
 import type { Notification } from "@/types/dashboard";
 
-async function fetchNotifications(wallet: string): Promise<Notification[]> {
-  const response = await fetch(
-    `/api/notifications?wallet=${encodeURIComponent(wallet)}`
-  );
+async function fetchNotifications(): Promise<Notification[]> {
+  const response = await fetch("/api/notifications");
 
   if (!response.ok) {
     throw new Error("Failed to load notifications.");
@@ -34,18 +32,22 @@ function StateCard({ message }: { message: string }) {
 }
 
 export function NotificationsContainer() {
-  const { address, isConnected } = useWallet();
+  const { address, isConnected, isAuthenticated } = useWallet();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["notifications", address],
-    queryFn: () => fetchNotifications(address as string),
-    enabled: isConnected && Boolean(address),
+    queryFn: fetchNotifications,
+    enabled: isAuthenticated,
   });
 
-  if (!isConnected || !address) {
+  if (!isConnected) {
     return (
       <StateCard message="Connect your wallet to see your notifications." />
     );
+  }
+
+  if (!isAuthenticated) {
+    return <StateCard message="Sign in to see your notifications." />;
   }
 
   if (isLoading) {
