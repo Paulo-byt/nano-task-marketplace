@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { isValidAddress } from "@/lib/utils/address";
 import { getTaskById } from "@/services/marketplace/mockTasks";
-import { getOrCreateUserByWallet, getUserByWallet } from "@/services/users/walletUser";
+import { getUserByWallet } from "@/services/users/walletUser";
+import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import {
   createApplication,
   getMyTasks,
@@ -38,6 +40,17 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionId) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const sessionUser = await getSessionUser(sessionId);
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -46,17 +59,9 @@ export async function POST(request: Request) {
   }
 
   const taskId = extractString(body, "taskId");
-  const walletAddress = extractString(body, "walletAddress");
-
   if (!taskId) {
     return NextResponse.json(
       { error: "taskId is required." },
-      { status: 400 }
-    );
-  }
-  if (!walletAddress || !isValidAddress(walletAddress)) {
-    return NextResponse.json(
-      { error: "A valid walletAddress is required." },
       { status: 400 }
     );
   }
@@ -66,10 +71,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
   }
 
-  const user = await getOrCreateUserByWallet(walletAddress);
-
   try {
-    await createApplication(taskId, user.id);
+    await createApplication(taskId, sessionUser.id);
   } catch (err) {
     if (err instanceof DuplicateApplicationError) {
       return NextResponse.json(
@@ -86,7 +89,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    await createApplicationSubmittedNotification(user.id, task.title);
+    await createApplicationSubmittedNotification(sessionUser.id, task.title);
   } catch (err) {
     console.error("Failed to create application-submitted notification:", err);
   }
