@@ -17,6 +17,11 @@ export function ConnectWalletButton() {
     connect,
     disconnect,
     switchToArc,
+    isAuthenticated,
+    isCheckingSession,
+    isSigningIn,
+    signInError,
+    signIn,
   } = useWallet();
 
   const [isSwitching, setIsSwitching] = useState(false);
@@ -62,9 +67,32 @@ export function ConnectWalletButton() {
         </span>
 
         {isCorrectNetwork ? (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Connected to ARC Testnet
-          </p>
+          isAuthenticated ? (
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Connected to ARC Testnet
+            </p>
+          ) : isCheckingSession ? (
+            <p className="text-sm text-zinc-500">Checking sign-in status…</p>
+          ) : (
+            <>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Sign in to continue.
+              </p>
+              <button
+                type="button"
+                onClick={signIn}
+                disabled={isSigningIn}
+                className="rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSigningIn ? "Signing in..." : "Sign In"}
+              </button>
+              {signInError && (
+                <p className="text-sm text-red-600 dark:text-red-400">
+                  {signInError}
+                </p>
+              )}
+            </>
+          )
         ) : (
           <>
             <div className="text-center">
