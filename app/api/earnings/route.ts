@@ -1,37 +1,26 @@
 import { NextResponse } from "next/server";
-import { isValidAddress } from "@/lib/utils/address";
-import { getUserByWallet } from "@/services/users/walletUser";
+import { cookies } from "next/headers";
+import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import {
   getEarningsSummary,
   getPayoutHistory,
 } from "@/services/dashboard/mockEarningsService";
 
-const EMPTY_SUMMARY = {
-  totalEarningsUsdc: 0,
-  availableBalanceUsdc: 0,
-  pendingPayoutsUsdc: 0,
-  completedPayoutsCount: 0,
-};
-
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const wallet = searchParams.get("wallet");
-
-  if (!wallet || !isValidAddress(wallet)) {
-    return NextResponse.json(
-      { error: "A valid wallet address is required." },
-      { status: 400 }
-    );
+export async function GET() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionId) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  const user = await getUserByWallet(wallet);
-  if (!user) {
-    return NextResponse.json({ summary: EMPTY_SUMMARY, payouts: [] });
+  const sessionUser = await getSessionUser(sessionId);
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
   const [summary, payoutHistory] = await Promise.all([
-    getEarningsSummary(user.id),
-    getPayoutHistory(user.id),
+    getEarningsSummary(sessionUser.id),
+    getPayoutHistory(sessionUser.id),
   ]);
 
   return NextResponse.json({ summary, payouts: payoutHistory });

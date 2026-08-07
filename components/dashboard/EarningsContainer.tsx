@@ -13,12 +13,11 @@ const EMPTY_SUMMARY: EarningsSummary = {
   completedPayoutsCount: 0,
 };
 
-async function fetchEarnings(
-  wallet: string
-): Promise<{ summary: EarningsSummary; payouts: Payout[] }> {
-  const response = await fetch(
-    `/api/earnings?wallet=${encodeURIComponent(wallet)}`
-  );
+async function fetchEarnings(): Promise<{
+  summary: EarningsSummary;
+  payouts: Payout[];
+}> {
+  const response = await fetch("/api/earnings");
 
   if (!response.ok) {
     throw new Error("Failed to load earnings.");
@@ -41,16 +40,20 @@ function StateCard({ message }: { message: string }) {
 }
 
 export function EarningsContainer() {
-  const { address, isConnected } = useWallet();
+  const { address, isConnected, isAuthenticated } = useWallet();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["earnings", address],
-    queryFn: () => fetchEarnings(address as string),
-    enabled: isConnected && Boolean(address),
+    queryFn: fetchEarnings,
+    enabled: isAuthenticated,
   });
 
-  if (!isConnected || !address) {
+  if (!isConnected) {
     return <StateCard message="Connect your wallet to see your earnings." />;
+  }
+
+  if (!isAuthenticated) {
+    return <StateCard message="Sign in to see your earnings." />;
   }
 
   if (isLoading) {
