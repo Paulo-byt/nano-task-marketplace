@@ -1,35 +1,24 @@
 import { NextResponse } from "next/server";
-import { isValidAddress } from "@/lib/utils/address";
-import { getUserByWallet } from "@/services/users/walletUser";
+import { cookies } from "next/headers";
+import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getProfileStats } from "@/services/dashboard/mockProfileService";
 import { getEarningsSummary } from "@/services/dashboard/mockEarningsService";
 
-const EMPTY_STATS = {
-  memberSince: "—",
-  tasksCompleted: 0,
-  tasksInProgress: 0,
-  reputationScore: 0,
-};
-
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const wallet = searchParams.get("wallet");
-
-  if (!wallet || !isValidAddress(wallet)) {
-    return NextResponse.json(
-      { error: "A valid wallet address is required." },
-      { status: 400 }
-    );
+export async function GET() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionId) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  const user = await getUserByWallet(wallet);
-  if (!user) {
-    return NextResponse.json({ stats: EMPTY_STATS, totalEarningsUsdc: 0 });
+  const sessionUser = await getSessionUser(sessionId);
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
   const [stats, earnings] = await Promise.all([
-    getProfileStats(user.id),
-    getEarningsSummary(user.id),
+    getProfileStats(sessionUser.id),
+    getEarningsSummary(sessionUser.id),
   ]);
 
   return NextResponse.json({

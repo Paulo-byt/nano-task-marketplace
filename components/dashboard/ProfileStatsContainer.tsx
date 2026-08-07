@@ -12,12 +12,11 @@ const EMPTY_STATS: ProfileOverview = {
   reputationScore: 0,
 };
 
-async function fetchProfile(
-  wallet: string
-): Promise<{ stats: ProfileOverview; totalEarningsUsdc: number }> {
-  const response = await fetch(
-    `/api/profile?wallet=${encodeURIComponent(wallet)}`
-  );
+async function fetchProfile(): Promise<{
+  stats: ProfileOverview;
+  totalEarningsUsdc: number;
+}> {
+  const response = await fetch("/api/profile");
 
   if (!response.ok) {
     throw new Error("Failed to load profile.");
@@ -35,18 +34,22 @@ function StateCard({ message }: { message: string }) {
 }
 
 export function ProfileStatsContainer() {
-  const { address, isConnected } = useWallet();
+  const { address, isConnected, isAuthenticated } = useWallet();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["profile", address],
-    queryFn: () => fetchProfile(address as string),
-    enabled: isConnected && Boolean(address),
+    queryFn: fetchProfile,
+    enabled: isAuthenticated,
   });
 
-  if (!isConnected || !address) {
+  if (!isConnected) {
     return (
       <StateCard message="Connect your wallet to see your profile stats." />
     );
+  }
+
+  if (!isAuthenticated) {
+    return <StateCard message="Sign in to see your profile stats." />;
   }
 
   if (isLoading) {
