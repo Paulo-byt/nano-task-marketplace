@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { isValidAddress } from "@/lib/utils/address";
 import { getTaskById } from "@/services/marketplace/mockTasks";
-import { getUserByWallet } from "@/services/users/walletUser";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import {
   createApplication,
@@ -19,23 +17,19 @@ function extractString(body: unknown, key: string): string | undefined {
   return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const wallet = searchParams.get("wallet");
-
-  if (!wallet || !isValidAddress(wallet)) {
-    return NextResponse.json(
-      { error: "A valid wallet address is required." },
-      { status: 400 }
-    );
+export async function GET() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionId) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  const user = await getUserByWallet(wallet);
-  if (!user) {
-    return NextResponse.json({ tasks: [] });
+  const sessionUser = await getSessionUser(sessionId);
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  const tasks = await getMyTasks(user.id);
+  const tasks = await getMyTasks(sessionUser.id);
   return NextResponse.json({ tasks });
 }
 

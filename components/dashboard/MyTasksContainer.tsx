@@ -5,10 +5,8 @@ import { useWallet } from "@/hooks/useWallet";
 import { MyTasksList } from "@/components/dashboard/MyTasksList";
 import type { MyTask } from "@/types/application";
 
-async function fetchMyTasks(wallet: string): Promise<MyTask[]> {
-  const response = await fetch(
-    `/api/applications?wallet=${encodeURIComponent(wallet)}`
-  );
+async function fetchMyTasks(): Promise<MyTask[]> {
+  const response = await fetch("/api/applications");
 
   if (!response.ok) {
     throw new Error("Failed to load applications.");
@@ -32,18 +30,22 @@ function StateCard({ message }: { message: string }) {
 }
 
 export function MyTasksContainer() {
-  const { address, isConnected } = useWallet();
+  const { address, isConnected, isAuthenticated } = useWallet();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["my-tasks", address],
-    queryFn: () => fetchMyTasks(address as string),
-    enabled: isConnected && Boolean(address),
+    queryFn: fetchMyTasks,
+    enabled: isAuthenticated,
   });
 
-  if (!isConnected || !address) {
+  if (!isConnected) {
     return (
       <StateCard message="Connect your wallet to see the tasks you've applied for." />
     );
+  }
+
+  if (!isAuthenticated) {
+    return <StateCard message="Sign in to see your tasks." />;
   }
 
   if (isLoading) {
