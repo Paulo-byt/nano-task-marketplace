@@ -66,3 +66,40 @@ export async function getTaskById(id: string): Promise<Task | undefined> {
 
   return rows[0] ? toTask(rows[0]) : undefined;
 }
+
+export interface CreateTaskInput {
+  creatorId: string;
+  title: string;
+  description: string;
+  rewardUsdc: number;
+  category: Task["category"];
+  difficulty: Task["difficulty"];
+  estimatedTime: string;
+}
+
+/**
+ * Inserts a new task for an already-authenticated creator. Only the columns
+ * listed here are ever written -- status, funding_status, funding_tx_hash,
+ * funded_amount_usdc, and funded_at are intentionally left unset so they
+ * take their database defaults ("open" / "unfunded" / null). Funding is a
+ * separate, later Phase 7 step and must never be reachable from task
+ * creation.
+ */
+export async function createTask(
+  input: CreateTaskInput
+): Promise<{ id: string }> {
+  const [row] = await db
+    .insert(tasks)
+    .values({
+      title: input.title,
+      description: input.description,
+      rewardUsdc: input.rewardUsdc.toFixed(2),
+      category: input.category,
+      difficulty: input.difficulty,
+      estimatedTime: input.estimatedTime,
+      creatorId: input.creatorId,
+    })
+    .returning({ id: tasks.id });
+
+  return row;
+}
