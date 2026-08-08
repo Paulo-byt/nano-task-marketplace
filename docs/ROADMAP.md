@@ -32,20 +32,19 @@ Replaced every mock data source with a real, persistent backend — incrementall
 
 **Result:** Marketplace, Applications, Notifications, Earnings, Profile, and Settings are all backed by Neon PostgreSQL via Drizzle, scoped to the connected wallet. Dashboard Overview remains mock data. See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for the full current-state snapshot.
 
+### Phase 6 — Wallet Authentication (SIWE)
+
+Replaced the unverified, client-supplied wallet address with a cryptographically verified Sign-In With Ethereum flow: nonce issuance (`POST /api/auth/nonce`), wagmi message signing, server-side signature verification via viem's `recoverMessageAddress` (`POST /api/auth/verify`), and a real httpOnly-cookie session backed by the `sessions` table defined back in Phase 5.1 and unused until now. Ten steps, each cutting over server and client together with no transitional dual-support period: session/SIWE helper functions, the three auth routes, `useWallet()`'s three-state UX (not connected / connected-but-not-signed-in / signed-in), the write route (`POST /api/applications`), then the four remaining read routes (`GET /api/applications`, `/api/notifications`, `/api/earnings`, `/api/profile`, `/api/settings`) one at a time with their Containers, closing with a full security and architecture audit.
+
+One originally-scoped objective — re-evaluating whether wallet-scoped pages could move back to server-rendering now that a session exists to read — was **not** part of the actual executed implementation and remains deferred to a future phase; every wallet-scoped page is still a Client Component using the same Container pattern established in Phase 5.
+
+**Result:** all five previously wallet-scoped read routes, plus the one write route, now resolve identity exclusively from the session cookie via `getSessionUser()` — zero routes read `?wallet=` or trust a client-supplied `walletAddress`. Verified by a dedicated Step 10 audit: nonce reuse, invalid signatures, and wrong-wallet signatures are all rejected; expired sessions are rejected; logout deletes the session row; the cookie is never readable by client-side JavaScript; and two isolated test wallets showed no cross-user data leakage across any route, including forged-parameter attempts using real other-wallet addresses. No application-code bugs were found. See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for the full current-state snapshot and [TECHNICAL_DEBT.md#resolved](./TECHNICAL_DEBT.md#resolved) for what this closed out.
+
 ---
 
 ## Current Phase
 
-### Phase 6 — Wallet Authentication (SIWE)
-
-**Primary objectives:**
-
-- Replace the current unverified, client-supplied wallet address with a cryptographically verified Sign-In With Ethereum flow: nonce issuance, message signing via wagmi, server-side verification via viem, and a real session.
-- Populate and put the already-defined `sessions` table to use for the first time.
-- Protect the five existing API routes behind session validation instead of a trusted query parameter.
-- Re-evaluate which wallet-scoped pages can move back to server-rendering now that a session exists to read.
-
-See [DECISIONS.md#adr-005](./DECISIONS.md#adr-005-wallet-first-identity) and [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md#authentication) for the full context this phase closes out.
+None. Phase 6 is complete; Phase 7 has not yet begun.
 
 ---
 
@@ -78,10 +77,10 @@ Everything required to move from Arc Testnet toward a real, public-facing deploy
 - A dedicated UI/QA pass across the whole application
 - Full migration to a persistent, relational database
 - A wallet-scoped, multi-user-capable data model (any number of distinct wallets can use the app with correctly isolated data)
+- First cryptographically authenticated session (Phase 6)
 
 **Future:**
 
-- First cryptographically authenticated session (Phase 6)
 - First real, non-test-seeded payout executed (Phase 7)
 - First AI-generated task and AI-evaluated submission (Phase 8)
 - First rate-limited, index-reviewed production deployment (Phase 9)

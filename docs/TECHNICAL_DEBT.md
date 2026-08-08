@@ -10,12 +10,6 @@ Cross-references: [ROADMAP.md](./ROADMAP.md) for which future phase each item is
 
 Items that block production readiness or represent an active security gap.
 
-### Authentication
-
-- **SIWE (Sign-In With Ethereum) implementation.** Wallet address is currently a client-supplied claim with no signature check. This is the single highest-priority item in the project. Deferred because Phase 5's scope was explicitly "identity only" — see [DECISIONS.md#adr-005](./DECISIONS.md#adr-005-wallet-first-identity).
-- **Remove `walletAddress` from client request bodies/query params as the trust boundary.** `POST /api/applications` accepts `walletAddress` directly in the JSON body; every `GET` route accepts `?wallet=` with no verification. Deferred for the same reason as SIWE — this and SIWE are really one piece of work, since the fix *is* replacing the trust boundary.
-- **Protect API routes behind session validation.** All five routes are currently open to anyone who can guess or observe a wallet address. Deferred until sessions exist to protect them with (Phase 6).
-
 ### Database
 
 - **Add secondary indexes on foreign-key columns used in wallet-scoped joins:** `applications.applicant_id`, `payouts.application_id`, `notifications.user_id`. Invisible at current (test-fixture) data volume, since Postgres happily sequential-scans a handful of rows. Deferred because index tuning against realistic data volume wasn't yet possible to validate meaningfully — adding indexes speculatively without a query-plan justification is its own minor debt.
@@ -68,7 +62,8 @@ Items that meaningfully improve correctness, performance, or maintainability, bu
 ### Security
 
 - **Better request validation.** Current validation is limited to wallet-address regex format checks and basic type/presence checks; there's no deeper schema validation (e.g. via Zod) on request bodies. Deferred as acceptable for the current, narrow API surface, but worth revisiting as more write endpoints are added.
-- **CSRF protection.** Not yet meaningful without a session cookie to forge, but will become a real requirement the moment Phase 6 introduces one — recorded here so it isn't forgotten when that happens.
+- **CSRF protection.** Phase 6 introduced the session cookie this item was waiting on, so its precondition has now occurred. `SameSite=Lax` already blocks the classic cross-site-fetch vector against the one write route (`POST /api/applications`), so this is not an actively exploitable gap today — but dedicated CSRF tokens were never part of Phase 6's approved scope and remain a real defense-in-depth opportunity, worth picking up alongside the next phase that adds write endpoints.
+- **SIWE message field validation.** `POST /api/auth/verify` checks the signed message's nonce and recovers the signer address from the signature, but never re-validates the domain, URI, or chain-id fields embedded in the message itself. This matches the actual approved Phase 6 design, which only ever specified nonce + signature checking, so it is not a regression — but it is a narrow hardening opportunity: without this check, a message signed for this app could in principle be replayed against it from a different context that also renders a "Nano Task Marketplace"-labeled sign-in prompt. Identified during the Phase 6 Step 10 security audit.
 
 ### Performance
 
@@ -114,3 +109,15 @@ Cosmetic, cleanup, or genuinely optional items — real, but with no functional 
 
 - **A formal API specification** (e.g. OpenAPI/Swagger) beyond the plain-language route table in [ARCHITECTURE.md](./ARCHITECTURE.md#api-architecture).
 - **A `CONTRIBUTING.md`.** No formal contribution process exists yet — noted as a placeholder in the project [README](../README.md#contributing).
+
+---
+
+## Resolved
+
+Items that were tracked here as active debt and have since been closed out. Kept for historical record rather than deleted — see [DECISIONS.md#adr-010](./DECISIONS.md#adr-010-technical-debt-was-intentionally-deferred-not-accidentally-accumulated) for why this backlog preserves resolved items.
+
+### Authentication
+
+- **SIWE (Sign-In With Ethereum) implementation.** Wallet address was previously a client-supplied claim with no signature check. Originally deferred because Phase 5's scope was explicitly "identity only" — see [DECISIONS.md#adr-005](./DECISIONS.md#adr-005-wallet-first-identity). **Resolved (Phase 6):** `POST /api/auth/nonce`, `POST /api/auth/verify`, `GET /api/auth/session`, and `POST /api/auth/logout` now implement the full EIP-4361 flow — nonce issuance, wagmi message signing, server-side signature recovery via viem's `recoverMessageAddress`, and a real `sessions`-table-backed cookie session.
+- **Remove `walletAddress` from client request bodies/query params as the trust boundary.** `POST /api/applications` previously accepted `walletAddress` directly in the JSON body; every `GET` route previously accepted `?wallet=` with no verification. Originally deferred alongside SIWE, since the fix *is* replacing the trust boundary. **Resolved (Phase 6):** a repository-wide audit (Step 10) confirmed zero remaining `?wallet=` usages anywhere in application code, and `getUserByWallet`/`getOrCreateUserByWallet` are now called from exactly one place — the nonce route, at the moment a claim is first made.
+- **Protect API routes behind session validation.** All five routes were previously open to anyone who could guess or observe a wallet address. Originally deferred until sessions existed to protect them with. **Resolved (Phase 6):** `/api/applications`, `/api/notifications`, `/api/earnings`, `/api/profile`, and `/api/settings` all now resolve identity exclusively via `getSessionUser()` against the session cookie, returning 401 without a valid session. Verified with two isolated test wallets confirming no cross-user data leakage and forged `?wallet=` parameters having no effect, across all five routes.
