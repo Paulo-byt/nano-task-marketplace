@@ -26,6 +26,13 @@ export const taskDifficultyEnum = pgEnum("task_difficulty", [
 
 export const taskStatusEnum = pgEnum("task_status", ["open", "closed"]);
 
+export const taskFundingStatusEnum = pgEnum("task_funding_status", [
+  "unfunded",
+  "funded",
+  "released",
+  "cancelled",
+]);
+
 export const applicationStatusEnum = pgEnum("application_status", [
   "applied",
   "approved",
@@ -36,6 +43,7 @@ export const applicationStatusEnum = pgEnum("application_status", [
 export const payoutStatusEnum = pgEnum("payout_status", [
   "pending",
   "completed",
+  "failed",
 ]);
 
 export const notificationTypeEnum = pgEnum("notification_type", [
@@ -73,6 +81,12 @@ export const tasks = pgTable("tasks", {
     .notNull()
     .references(() => users.id),
   status: taskStatusEnum("status").notNull().default("open"),
+  fundingStatus: taskFundingStatusEnum("funding_status")
+    .notNull()
+    .default("unfunded"),
+  fundingTxHash: text("funding_tx_hash"),
+  fundedAmountUsdc: numeric("funded_amount_usdc", { precision: 10, scale: 2 }),
+  fundedAt: timestamp("funded_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -95,6 +109,7 @@ export const applications = pgTable(
     appliedAt: timestamp("applied_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (table) => ({
@@ -105,19 +120,27 @@ export const applications = pgTable(
   })
 );
 
-export const payouts = pgTable("payouts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  applicationId: uuid("application_id")
-    .notNull()
-    .references(() => applications.id),
-  amountUsdc: numeric("amount_usdc", { precision: 10, scale: 2 }).notNull(),
-  status: payoutStatusEnum("status").notNull().default("pending"),
-  txHash: text("tx_hash"),
-  paidAt: timestamp("paid_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const payouts = pgTable(
+  "payouts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    applicationId: uuid("application_id")
+      .notNull()
+      .references(() => applications.id),
+    amountUsdc: numeric("amount_usdc", { precision: 10, scale: 2 }).notNull(),
+    status: payoutStatusEnum("status").notNull().default("pending"),
+    txHash: text("tx_hash"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    applicationUnique: uniqueIndex("payouts_application_unique").on(
+      table.applicationId
+    ),
+  })
+);
 
 export const notifications = pgTable("notifications", {
   id: uuid("id").primaryKey().defaultRandom(),
