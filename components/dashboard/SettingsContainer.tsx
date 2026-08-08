@@ -8,10 +8,8 @@ import { SettingsSection } from "@/components/dashboard/SettingsSection";
 import { SettingsRow } from "@/components/dashboard/SettingsRow";
 import { WalletSettingsSection } from "@/components/dashboard/WalletSettingsSection";
 
-async function fetchSettings(wallet: string): Promise<SettingsSectionData[]> {
-  const response = await fetch(
-    `/api/settings?wallet=${encodeURIComponent(wallet)}`
-  );
+async function fetchSettings(): Promise<SettingsSectionData[]> {
+  const response = await fetch("/api/settings");
 
   if (!response.ok) {
     throw new Error("Failed to load settings.");
@@ -44,21 +42,23 @@ function StateCard({ message }: { message: string }) {
 }
 
 export function SettingsContainer() {
-  const { address, isConnected } = useWallet();
+  const { address, isConnected, isAuthenticated } = useWallet();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["settings", address],
-    queryFn: () => fetchSettings(address as string),
-    enabled: isConnected && Boolean(address),
+    queryFn: fetchSettings,
+    enabled: isAuthenticated,
   });
 
   let topContent: ReactNode;
   let bottomContent: ReactNode = null;
 
-  if (!isConnected || !address) {
+  if (!isConnected) {
     topContent = (
       <StateCard message="Connect your wallet to see your settings." />
     );
+  } else if (!isAuthenticated) {
+    topContent = <StateCard message="Sign in to see your settings." />;
   } else if (isLoading) {
     topContent = <StateCard message="Loading your settings…" />;
   } else if (isError || !data) {

@@ -1,26 +1,24 @@
 import { NextResponse } from "next/server";
-import { isValidAddress } from "@/lib/utils/address";
-import { getUserByWallet } from "@/services/users/walletUser";
+import { cookies } from "next/headers";
+import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getSettingsSections } from "@/services/dashboard/mockSettingsService";
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const wallet = searchParams.get("wallet");
-
-  if (!wallet || !isValidAddress(wallet)) {
-    return NextResponse.json(
-      { error: "A valid wallet address is required." },
-      { status: 400 }
-    );
+export async function GET() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!sessionId) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
-  // No per-wallet preference storage exists yet, so a wallet with no user
-  // row gets the same informational sections as one that has applied,
-  // completed tasks, etc. This still performs the same lookup-only,
-  // no-auto-create check every other route makes, so the branch is ready
-  // to diverge once real per-user settings exist.
-  await getUserByWallet(wallet);
+  const sessionUser = await getSessionUser(sessionId);
+  if (!sessionUser) {
+    return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
 
+  // No per-wallet preference storage exists yet, so every signed-in user
+  // gets the same informational sections -- sessionUser itself is unused
+  // below, but the auth check still gates the route so "signed in or not"
+  // stays meaningful, ready to diverge once real per-user settings exist.
   const sections = getSettingsSections();
   return NextResponse.json({ sections });
 }
