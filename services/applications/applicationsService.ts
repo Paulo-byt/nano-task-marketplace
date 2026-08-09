@@ -92,9 +92,15 @@ export async function getApplicantsForTask(
       applicantWalletAddress: users.walletAddress,
       status: applications.status,
       appliedAt: applications.appliedAt,
+      // LEFT join: only approved applications have a payout row at all: a
+      // null here means "not approved yet," not an error. Added for Step
+      // 8, which needs to display payout state alongside application
+      // status in the same list.
+      payoutStatus: payouts.status,
     })
     .from(applications)
     .innerJoin(users, eq(applications.applicantId, users.id))
+    .leftJoin(payouts, eq(payouts.applicationId, applications.id))
     .where(eq(applications.taskId, taskId))
     .orderBy(desc(applications.appliedAt));
 
@@ -103,6 +109,7 @@ export async function getApplicantsForTask(
     applicant: row.applicantDisplayName ?? row.applicantWalletAddress,
     status: row.status,
     appliedAt: formatDate(row.appliedAt),
+    payoutStatus: row.payoutStatus ?? null,
   }));
 }
 

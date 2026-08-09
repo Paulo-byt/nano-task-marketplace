@@ -1,11 +1,22 @@
 import type { Applicant } from "@/types/postedTask";
 import { ApproveApplicationButton } from "@/components/dashboard/ApproveApplicationButton";
+import { ReleasePayoutButton } from "@/components/dashboard/ReleasePayoutButton";
 
 const STATUS_STYLES: Record<Applicant["status"], string> = {
   applied: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
   approved: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   completed: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
   rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const PAYOUT_STATUS_STYLES: Record<"completed" | "failed", string> = {
+  completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  failed: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const PAYOUT_STATUS_LABELS: Record<"completed" | "failed", string> = {
+  completed: "Paid",
+  failed: "Payout Failed",
 };
 
 export function ApplicantsList({
@@ -47,6 +58,21 @@ export function ApplicantsList({
                     taskId={taskId}
                     applicationId={applicant.applicationId}
                   />
+                )}
+                {applicant.status === "approved" &&
+                  applicant.payoutStatus === "pending" && (
+                    <ReleasePayoutButton
+                      taskId={taskId}
+                      applicationId={applicant.applicationId}
+                    />
+                  )}
+                {(applicant.payoutStatus === "completed" ||
+                  applicant.payoutStatus === "failed") && (
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${PAYOUT_STATUS_STYLES[applicant.payoutStatus]}`}
+                  >
+                    {PAYOUT_STATUS_LABELS[applicant.payoutStatus]}
+                  </span>
                 )}
               </div>
             </li>

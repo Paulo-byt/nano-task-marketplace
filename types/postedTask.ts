@@ -16,4 +16,5 @@ export interface Applicant {
   applicant: string;
   status: "applied" | "approved" | "rejected" | "completed";
   appliedAt: string;
+  payoutStatus: "pending" | "completed" | "failed" | null;
 }
