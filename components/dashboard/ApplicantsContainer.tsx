@@ -58,5 +58,5 @@ export function ApplicantsContainer({ taskId }: { taskId: string }) {
     );
   }
 
-  return <ApplicantsList applicants={data ?? []} />;
+  return <ApplicantsList taskId={taskId} applicants={data ?? []} />;
 }

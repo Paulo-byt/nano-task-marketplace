@@ -1,4 +1,5 @@
 import type { Applicant } from "@/types/postedTask";
+import { ApproveApplicationButton } from "@/components/dashboard/ApproveApplicationButton";
 
 const STATUS_STYLES: Record<Applicant["status"], string> = {
   applied: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
@@ -7,7 +8,13 @@ const STATUS_STYLES: Record<Applicant["status"], string> = {
   rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
 };
 
-export function ApplicantsList({ applicants }: { applicants: Applicant[] }) {
+export function ApplicantsList({
+  taskId,
+  applicants,
+}: {
+  taskId: string;
+  applicants: Applicant[];
+}) {
   return (
     <div className="rounded-xl border border-black/10 dark:border-white/10">
       <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
@@ -29,11 +36,19 @@ export function ApplicantsList({ applicants }: { applicants: Applicant[] }) {
                   Applied {applicant.appliedAt}
                 </p>
               </div>
-              <span
-                className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STATUS_STYLES[applicant.status]}`}
-              >
-                {applicant.status}
-              </span>
+              <div className="flex flex-shrink-0 items-center gap-3">
+                <span
+                  className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STATUS_STYLES[applicant.status]}`}
+                >
+                  {applicant.status}
+                </span>
+                {applicant.status === "applied" && (
+                  <ApproveApplicationButton
+                    taskId={taskId}
+                    applicationId={applicant.applicationId}
+                  />
+                )}
+              </div>
             </li>
           ))}
         </ul>

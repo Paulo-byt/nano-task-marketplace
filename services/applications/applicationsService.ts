@@ -1,10 +1,13 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { applications, tasks, users } from "@/db/schema";
+import { applications, payouts, tasks, users } from "@/db/schema";
 import type { MyTask } from "@/types/application";
 import type { Applicant } from "@/types/postedTask";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export class DuplicateApplicationError extends Error {}
+export class ApplicationNotApprovableError extends Error {}
 
 function isUniqueViolation(err: unknown): boolean {
   // Drizzle wraps the underlying Postgres error (which carries `.code`) in
@@ -101,4 +104,99 @@ export async function getApplicantsForTask(
     status: row.status,
     appliedAt: formatDate(row.appliedAt),
   }));
+}
+
+export interface ApplicationForApproval {
+  id: string;
+  taskId: string;
+  applicantId: string;
+  status: "applied" | "approved" | "rejected" | "completed";
+}
+
+/**
+ * Raw lookup for the approval route's own checks (task match, current
+ * status) -- ownership of the parent task is verified by the caller via
+ * getTaskForFunding before this is ever called, the same division of
+ * responsibility as getApplicantsForTask above.
+ */
+export async function getApplicationForApproval(
+  applicationId: string
+): Promise<ApplicationForApproval | undefined> {
+  if (!UUID_RE.test(applicationId)) {
+    return undefined;
+  }
+
+  const rows = await db
+    .select({
+      id: applications.id,
+      taskId: applications.taskId,
+      applicantId: applications.applicantId,
+      status: applications.status,
+    })
+    .from(applications)
+    .where(eq(applications.id, applicationId))
+    .limit(1);
+
+  return rows[0];
+}
+
+export interface ApprovalResult {
+  applicationId: string;
+  payoutId: string;
+}
+
+/**
+ * Approves an application and creates its payout row in one atomic
+ * transaction -- the first real use of db.transaction in this codebase.
+ *
+ * The conditional UPDATE (status = 'applied' in the WHERE clause, not a
+ * separate check-then-write) is what makes two concurrent approval
+ * attempts for the same application safe: only one can ever match a row,
+ * so only one payout is ever created. The payouts.application_id unique
+ * constraint is a second, independent guard against a duplicate payout row
+ * even if that were somehow bypassed. amountUsdc must be the caller's
+ * already-verified, database-sourced task reward -- this function has no
+ * way to independently confirm it, the same trust boundary as every other
+ * service function here (query/write here, authorize and source trusted
+ * values at the route).
+ */
+export async function approveApplication(
+  applicationId: string,
+  amountUsdc: number
+): Promise<ApprovalResult> {
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(applications)
+      .set({ status: "approved", approvedAt: new Date() })
+      .where(
+        and(eq(applications.id, applicationId), eq(applications.status, "applied"))
+      )
+      .returning({ id: applications.id });
+
+    if (!updated) {
+      throw new ApplicationNotApprovableError(
+        "Application is no longer in an approvable state."
+      );
+    }
+
+    try {
+      const [payout] = await tx
+        .insert(payouts)
+        .values({
+          applicationId,
+          amountUsdc: amountUsdc.toFixed(2),
+          status: "pending",
+        })
+        .returning({ id: payouts.id });
+
+      return { applicationId, payoutId: payout.id };
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new ApplicationNotApprovableError(
+          "A payout for this application already exists."
+        );
+      }
+      throw err;
+    }
+  });
 }
