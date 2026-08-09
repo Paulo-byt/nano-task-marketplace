@@ -1,10 +1,26 @@
 import Link from "next/link";
 import type { Task } from "@/types/task";
+import { EXECUTOR_ADDRESS } from "@/lib/arc/executor";
+import { FundTaskButton } from "@/components/marketplace/FundTaskButton";
 
 const DIFFICULTY_STYLES: Record<Task["difficulty"], string> = {
   Beginner: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   Intermediate: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   Advanced: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const FUNDING_STATUS_STYLES: Record<Task["fundingStatus"], string> = {
+  unfunded: "bg-black/5 text-zinc-600 dark:bg-white/10 dark:text-zinc-400",
+  funded: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  released: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  cancelled: "bg-red-500/10 text-red-600 dark:text-red-400",
+};
+
+const FUNDING_STATUS_LABELS: Record<Task["fundingStatus"], string> = {
+  unfunded: "Not yet funded",
+  funded: "Funded",
+  released: "Funded",
+  cancelled: "Cancelled",
 };
 
 const PLACEHOLDER_REQUIREMENTS = [
@@ -24,6 +40,11 @@ export function TaskDetails({ task }: { task: Task }) {
           className={`rounded-full px-2.5 py-1 text-xs font-medium ${DIFFICULTY_STYLES[task.difficulty]}`}
         >
           {task.difficulty}
+        </span>
+        <span
+          className={`rounded-full px-2.5 py-1 text-xs font-medium ${FUNDING_STATUS_STYLES[task.fundingStatus]}`}
+        >
+          {FUNDING_STATUS_LABELS[task.fundingStatus]}
         </span>
       </div>
 
@@ -85,12 +106,15 @@ export function TaskDetails({ task }: { task: Task }) {
         </ul>
       </div>
 
-      <Link
-        href={`/marketplace/${task.id}/apply`}
-        className="inline-flex w-full items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 sm:w-auto sm:self-start"
-      >
-        Apply
-      </Link>
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <Link
+          href={`/marketplace/${task.id}/apply`}
+          className="inline-flex flex-1 items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 sm:flex-none sm:self-start"
+        >
+          Apply
+        </Link>
+        <FundTaskButton task={task} executorAddress={EXECUTOR_ADDRESS} />
+      </div>
     </article>
   );
 }

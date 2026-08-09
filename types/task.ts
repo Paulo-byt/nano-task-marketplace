@@ -7,4 +7,8 @@ export interface Task {
   difficulty: "Beginner" | "Intermediate" | "Advanced";
   estimatedTime: string;
   creator: string;
+  creatorWalletAddress: string;
+  fundingStatus: "unfunded" | "funded" | "released" | "cancelled";
+  fundingTxHash: string | null;
+  fundedAmountUsdc: number | null;
 }
