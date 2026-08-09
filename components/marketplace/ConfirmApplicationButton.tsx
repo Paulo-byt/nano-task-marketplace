@@ -5,10 +5,17 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
 import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
+import type { Task } from "@/types/task";
 
 type Status = "idle" | "loading" | "duplicate" | "error";
 
-export function ConfirmApplicationButton({ taskId }: { taskId: string }) {
+export function ConfirmApplicationButton({
+  taskId,
+  fundingStatus,
+}: {
+  taskId: string;
+  fundingStatus: Task["fundingStatus"];
+}) {
   const router = useRouter();
   const { isConnected, isAuthenticated } = useWallet();
   const [status, setStatus] = useState<Status>("idle");
@@ -57,6 +64,17 @@ export function ConfirmApplicationButton({ taskId }: { taskId: string }) {
           Sign in to apply for this task.
         </p>
         <ConnectWalletButton />
+      </div>
+    );
+  }
+
+  if (fundingStatus !== "funded") {
+    return (
+      <div className="flex flex-1 flex-col items-start gap-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          This task isn&apos;t funded yet. Check back once the creator funds
+          it.
+        </p>
       </div>
     );
   }

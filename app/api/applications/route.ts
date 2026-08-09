@@ -65,6 +65,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
   }
 
+  // task.fundingStatus comes from the database row fetched above, never
+  // from this request body -- a client cannot claim a task is funded.
+  if (task.fundingStatus !== "funded") {
+    return NextResponse.json(
+      { status: "not_funded", error: "Task is not funded yet." },
+      { status: 409 }
+    );
+  }
+
   try {
     await createApplication(taskId, sessionUser.id);
   } catch (err) {

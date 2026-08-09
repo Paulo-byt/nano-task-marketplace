@@ -51,7 +51,10 @@ export function ApplyConfirmation({ task }: { task: Task }) {
       </dl>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <ConfirmApplicationButton taskId={task.id} />
+        <ConfirmApplicationButton
+          taskId={task.id}
+          fundingStatus={task.fundingStatus}
+        />
         <Link
           href={`/marketplace/${task.id}`}
           className="inline-flex flex-1 items-center justify-center rounded-full border border-black/10 px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
