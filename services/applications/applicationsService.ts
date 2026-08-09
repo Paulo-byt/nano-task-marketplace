@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { applications, tasks } from "@/db/schema";
+import { applications, tasks, users } from "@/db/schema";
 import type { MyTask } from "@/types/application";
+import type { Applicant } from "@/types/postedTask";
 
 export class DuplicateApplicationError extends Error {}
 
@@ -66,6 +67,37 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
     taskId: row.taskId,
     taskTitle: row.taskTitle,
     rewardUsdc: Number(row.rewardUsdc),
+    status: row.status,
+    appliedAt: formatDate(row.appliedAt),
+  }));
+}
+
+/**
+ * Applicants for a single task. Ownership of that task is not checked
+ * here -- the caller (the applicants route handler) must already have
+ * verified the requesting session user is the task's creator before
+ * calling this, the same division of responsibility as every other
+ * service function in this codebase (query here, authorize at the route).
+ */
+export async function getApplicantsForTask(
+  taskId: string
+): Promise<Applicant[]> {
+  const rows = await db
+    .select({
+      applicationId: applications.id,
+      applicantDisplayName: users.displayName,
+      applicantWalletAddress: users.walletAddress,
+      status: applications.status,
+      appliedAt: applications.appliedAt,
+    })
+    .from(applications)
+    .innerJoin(users, eq(applications.applicantId, users.id))
+    .where(eq(applications.taskId, taskId))
+    .orderBy(desc(applications.appliedAt));
+
+  return rows.map((row) => ({
+    applicationId: row.applicationId,
+    applicant: row.applicantDisplayName ?? row.applicantWalletAddress,
     status: row.status,
     appliedAt: formatDate(row.appliedAt),
   }));

@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { tasks, users } from "@/db/schema";
+import { applications, tasks, users } from "@/db/schema";
 import type { Task } from "@/types/task";
+import type { PostedTask } from "@/types/postedTask";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -209,4 +210,50 @@ export async function markTaskFunded(
     .returning({ id: tasks.id });
 
   return rows.length > 0;
+}
+
+function formatDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+/**
+ * Tasks created by creatorId, with an applicant count per task. creatorId
+ * must come from getSessionUser() at the call site -- this function has no
+ * way to enforce that itself, it simply returns whatever it's asked for, so
+ * the route handler is the trust boundary.
+ */
+export async function getPostedTasksByCreator(
+  creatorId: string
+): Promise<PostedTask[]> {
+  const rows = await db
+    .select({
+      id: tasks.id,
+      title: tasks.title,
+      rewardUsdc: tasks.rewardUsdc,
+      category: tasks.category,
+      difficulty: tasks.difficulty,
+      fundingStatus: tasks.fundingStatus,
+      createdAt: tasks.createdAt,
+      applicantCount: sql<number>`count(${applications.id})`,
+    })
+    .from(tasks)
+    .leftJoin(applications, eq(applications.taskId, tasks.id))
+    .where(eq(tasks.creatorId, creatorId))
+    .groupBy(tasks.id)
+    .orderBy(desc(tasks.createdAt));
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    rewardUsdc: Number(row.rewardUsdc),
+    category: row.category,
+    difficulty: row.difficulty,
+    fundingStatus: row.fundingStatus,
+    createdAt: formatDate(row.createdAt),
+    applicantCount: Number(row.applicantCount),
+  }));
 }

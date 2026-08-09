@@ -8,6 +8,7 @@ const SIDEBAR_LINKS = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Marketplace", href: "/marketplace" },
   { label: "My Tasks", href: "/dashboard/my-tasks" },
+  { label: "Posted Tasks", href: "/dashboard/posted-tasks" },
   { label: "Earnings", href: "/dashboard/earnings" },
   { label: "Profile", href: "/dashboard/profile" },
   { label: "Notifications", href: "/dashboard/notifications" },

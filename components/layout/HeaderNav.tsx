@@ -8,6 +8,7 @@ const NAV_LINKS = [
   { label: "Marketplace", href: "/marketplace" },
   { label: "Dashboard", href: "/dashboard" },
   { label: "My Tasks", href: "/dashboard/my-tasks" },
+  { label: "Posted Tasks", href: "/dashboard/posted-tasks" },
   { label: "Earnings", href: "/dashboard/earnings" },
   { label: "Profile", href: "/dashboard/profile" },
   { label: "Notifications", href: "/dashboard/notifications" },
