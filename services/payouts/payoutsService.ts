@@ -77,3 +77,22 @@ export async function markPayoutFailed(
 
   return rows.length > 0;
 }
+
+/**
+ * Used by the task-cancellation route as a friendly pre-check (Step 9) --
+ * an already-approved worker's pending payout must block cancellation of
+ * the task. This is a read-only check for a clear error message; the
+ * actual race-safe guarantee is the NOT EXISTS clause inside cancelTask's
+ * own atomic UPDATE in mockTasks.ts, the same "friendly pre-check plus
+ * atomic final guard" split already used by the payout route.
+ */
+export async function hasPendingPayoutForTask(taskId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: payouts.id })
+    .from(payouts)
+    .innerJoin(applications, eq(payouts.applicationId, applications.id))
+    .where(and(eq(applications.taskId, taskId), eq(payouts.status, "pending")))
+    .limit(1);
+
+  return rows.length > 0;
+}

@@ -1,5 +1,6 @@
 import type { Applicant } from "@/types/postedTask";
 import { ApproveApplicationButton } from "@/components/dashboard/ApproveApplicationButton";
+import { RejectApplicationButton } from "@/components/dashboard/RejectApplicationButton";
 import { ReleasePayoutButton } from "@/components/dashboard/ReleasePayoutButton";
 
 const STATUS_STYLES: Record<Applicant["status"], string> = {
@@ -54,10 +55,16 @@ export function ApplicantsList({
                   {applicant.status}
                 </span>
                 {applicant.status === "applied" && (
-                  <ApproveApplicationButton
-                    taskId={taskId}
-                    applicationId={applicant.applicationId}
-                  />
+                  <>
+                    <RejectApplicationButton
+                      taskId={taskId}
+                      applicationId={applicant.applicationId}
+                    />
+                    <ApproveApplicationButton
+                      taskId={taskId}
+                      applicationId={applicant.applicationId}
+                    />
+                  </>
                 )}
                 {applicant.status === "approved" &&
                   applicant.payoutStatus === "pending" && (

@@ -207,3 +207,22 @@ export async function approveApplication(
     }
   });
 }
+
+/**
+ * Atomically rejects an application, guarded the same way as
+ * approveApplication above (status = 'applied' in the WHERE clause, not a
+ * separate check-then-write) -- so a reject racing an approve for the same
+ * application can only ever let one of them win. No payout row exists yet
+ * for a still-"applied" application, so there is nothing else to touch.
+ */
+export async function rejectApplication(applicationId: string): Promise<boolean> {
+  const rows = await db
+    .update(applications)
+    .set({ status: "rejected" })
+    .where(
+      and(eq(applications.id, applicationId), eq(applications.status, "applied"))
+    )
+    .returning({ id: applications.id });
+
+  return rows.length > 0;
+}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { PostedTask } from "@/types/postedTask";
+import { CancelTaskButton } from "@/components/dashboard/CancelTaskButton";
 
 const FUNDING_STATUS_STYLES: Record<PostedTask["fundingStatus"], string> = {
   unfunded: "bg-black/5 text-zinc-600 dark:bg-white/10 dark:text-zinc-400",
@@ -55,6 +56,10 @@ export function PostedTasksList({ tasks }: { tasks: PostedTask[] }) {
                 >
                   Applicants ({task.applicantCount})
                 </Link>
+                {(task.fundingStatus === "unfunded" ||
+                  task.fundingStatus === "funded") && (
+                  <CancelTaskButton taskId={task.id} />
+                )}
               </div>
             </li>
           ))}

@@ -1,6 +1,6 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { applications, tasks, users } from "@/db/schema";
+import { applications, payouts, tasks, users } from "@/db/schema";
 import type { Task } from "@/types/task";
 import type { PostedTask } from "@/types/postedTask";
 
@@ -210,6 +210,59 @@ export async function markTaskFunded(
     .returning({ id: tasks.id });
 
   return rows.length > 0;
+}
+
+/**
+ * Atomically cancels a task and rejects its still-"applied" applications in
+ * one transaction (Step 9). The NOT EXISTS clause is what actually makes
+ * this race-safe against a pending payout -- not the route's earlier
+ * hasPendingPayoutForTask check, which is only a friendly pre-check for a
+ * clear error message, the same split already used by the payout route
+ * (preflightPayout + a recheck, then the real atomic guard at the write).
+ * A payout that commits after this UPDATE has already read its snapshot
+ * cannot be missed: Postgres evaluates the whole statement, subquery
+ * included, against one consistent snapshot, so either the payout is
+ * already visible here (cancellation correctly fails) or it is not yet
+ * committed at all (ordinary read-committed race, same class already
+ * accepted for approve/payout and documented on the deferred backlog).
+ *
+ * If the task update matches, every application still "applied" for this
+ * task is rejected in the same transaction -- gated on status = 'applied'
+ * so an application concurrently approved in the same window (the known,
+ * documented cancel-vs-approve race) is correctly left untouched rather
+ * than incorrectly rejected out from under an approval that already won.
+ */
+export async function cancelTask(taskId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(tasks)
+      .set({ fundingStatus: "cancelled" })
+      .where(
+        and(
+          eq(tasks.id, taskId),
+          inArray(tasks.fundingStatus, ["unfunded", "funded"]),
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${payouts}
+            INNER JOIN ${applications} ON ${payouts.applicationId} = ${applications.id}
+            WHERE ${applications.taskId} = ${tasks.id} AND ${payouts.status} = 'pending'
+          )`
+        )
+      )
+      .returning({ id: tasks.id });
+
+    if (!updated) {
+      return false;
+    }
+
+    await tx
+      .update(applications)
+      .set({ status: "rejected" })
+      .where(
+        and(eq(applications.taskId, taskId), eq(applications.status, "applied"))
+      );
+
+    return true;
+  });
 }
 
 function formatDate(date: Date): string {
