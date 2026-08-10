@@ -226,3 +226,27 @@ export async function rejectApplication(applicationId: string): Promise<boolean>
 
   return rows.length > 0;
 }
+
+/**
+ * Atomically marks an application completed once its payout has genuinely
+ * succeeded (Step 10) -- called only after markPayoutCompleted has already
+ * won its own atomic race, so this request is uniquely the one whose
+ * payout completed. Guarded on status = 'approved', the same
+ * conditional-update idiom as every other write here, purely as
+ * defense-in-depth: nothing else in this codebase ever moves an
+ * application away from "approved" other than this call and the payout
+ * that triggers it.
+ */
+export async function markApplicationCompleted(
+  applicationId: string
+): Promise<boolean> {
+  const rows = await db
+    .update(applications)
+    .set({ status: "completed", completedAt: new Date() })
+    .where(
+      and(eq(applications.id, applicationId), eq(applications.status, "approved"))
+    )
+    .returning({ id: applications.id });
+
+  return rows.length > 0;
+}

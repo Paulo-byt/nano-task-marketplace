@@ -3,7 +3,10 @@ import { cookies } from "next/headers";
 import { parseUnits, type Address } from "viem";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getTaskForFunding } from "@/services/marketplace/mockTasks";
-import { getApplicationForApproval } from "@/services/applications/applicationsService";
+import {
+  getApplicationForApproval,
+  markApplicationCompleted,
+} from "@/services/applications/applicationsService";
 import {
   getPayoutForApplication,
   markPayoutCompleted,
@@ -188,6 +191,19 @@ export async function POST(
         txHash,
       },
       { status: 409 }
+    );
+  }
+
+  // The payout is now the durably-recorded, independently-verified source
+  // of truth. This is bookkeeping on top of that already-successful fact --
+  // if it unexpectedly loses its own atomic guard (should be unreachable;
+  // nothing else ever moves an application away from "approved"), that is
+  // logged loudly but must never turn an already-successful payout into an
+  // HTTP failure.
+  const applicationCompleted = await markApplicationCompleted(applicationId);
+  if (!applicationCompleted) {
+    console.error(
+      `Payout ${payout.payoutId} completed successfully (tx ${txHash}) but application ${applicationId} could not be marked completed -- it was not in an "approved" state at that moment.`
     );
   }
 
