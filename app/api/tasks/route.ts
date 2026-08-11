@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createTask } from "@/services/marketplace/mockTasks";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import type { Task } from "@/types/task";
 
 const ALLOWED_CATEGORIES = [
@@ -52,6 +53,14 @@ export async function POST(request: Request) {
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `tasks:create:${sessionUser.id}`,
+    RATE_LIMITS.taskCreate
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   let body: unknown;

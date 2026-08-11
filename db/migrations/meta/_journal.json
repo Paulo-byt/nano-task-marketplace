@@ -15,6 +15,27 @@
       "when": 1786221306348,
       "tag": "0001_dazzling_drax",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786393129359,
+      "tag": "0002_smart_cammi",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786437105784,
+      "tag": "0003_shiny_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786453273840,
+      "tag": "0004_high_spectrum",
+      "breakpoints": true
     }
   ]
 }

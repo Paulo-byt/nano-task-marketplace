@@ -4,6 +4,8 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
 import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
+import { GenerateTaskButton } from "@/components/ai/GenerateTaskButton";
+import type { TaskDraft } from "@/types/ai";
 
 const CATEGORIES = ["Writing", "AI", "Research", "Design", "Social"] as const;
 const DIFFICULTIES = ["Beginner", "Intermediate", "Advanced"] as const;
@@ -24,6 +26,15 @@ export function CreateTaskForm() {
   const [rewardUsdc, setRewardUsdc] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const handleGenerated = (draft: TaskDraft) => {
+    setTitle(draft.title);
+    setDescription(draft.description);
+    setCategory(draft.category);
+    setDifficulty(draft.difficulty);
+    setEstimatedTime(draft.estimatedTime);
+    setRewardUsdc(draft.rewardUsdc.toFixed(2));
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -86,6 +97,8 @@ export function CreateTaskForm() {
       onSubmit={handleSubmit}
       className="flex flex-col gap-5 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8"
     >
+      <GenerateTaskButton onGenerated={handleGenerated} />
+
       <div className="flex flex-col gap-1.5">
         <label
           htmlFor="title"

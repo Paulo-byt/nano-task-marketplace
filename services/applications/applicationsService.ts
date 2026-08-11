@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { applications, payouts, tasks, users } from "@/db/schema";
+import { applications, payouts, submissions, tasks, users } from "@/db/schema";
+import { getLatestAssessmentsForApplications } from "@/services/fraud/fraudSignalsService";
 import type { MyTask } from "@/types/application";
 import type { Applicant } from "@/types/postedTask";
 
@@ -59,9 +60,16 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
       rewardUsdc: tasks.rewardUsdc,
       status: applications.status,
       appliedAt: applications.appliedAt,
+      // LEFT join: only approved applications the worker has acted on have
+      // a submission row at all -- null means "not submitted yet," not an
+      // error. Evaluation fields are deliberately not selected here: the
+      // worker's own view never exposes the AI verdict/feedback (Step 13
+      // decision), only whether/what they submitted.
+      submissionContent: submissions.content,
     })
     .from(applications)
     .innerJoin(tasks, eq(applications.taskId, tasks.id))
+    .leftJoin(submissions, eq(submissions.applicationId, applications.id))
     .where(eq(applications.applicantId, applicantId))
     .orderBy(desc(applications.appliedAt));
 
@@ -72,6 +80,8 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
     rewardUsdc: Number(row.rewardUsdc),
     status: row.status,
     appliedAt: formatDate(row.appliedAt),
+    hasSubmission: row.submissionContent !== null,
+    submissionContent: row.submissionContent ?? null,
   }));
 }
 
@@ -97,20 +107,51 @@ export async function getApplicantsForTask(
       // 8, which needs to display payout state alongside application
       // status in the same list.
       payoutStatus: payouts.status,
+      // LEFT join: only applications the worker has submitted work for have
+      // a row here. The creator's view (unlike getMyTasks above) does
+      // include the evaluation verdict/feedback -- Step 13 makes that
+      // creator-only by deliberately not selecting it in getMyTasks, not by
+      // hiding it here.
+      submissionId: submissions.id,
+      submissionContent: submissions.content,
+      submittedAt: submissions.submittedAt,
+      evaluationVerdict: submissions.evaluationVerdict,
+      evaluationFeedback: submissions.evaluationFeedback,
     })
     .from(applications)
     .innerJoin(users, eq(applications.applicantId, users.id))
     .leftJoin(payouts, eq(payouts.applicationId, applications.id))
+    .leftJoin(submissions, eq(submissions.applicationId, applications.id))
     .where(eq(applications.taskId, taskId))
     .orderBy(desc(applications.appliedAt));
 
-  return rows.map((row) => ({
-    applicationId: row.applicationId,
-    applicant: row.applicantDisplayName ?? row.applicantWalletAddress,
-    status: row.status,
-    appliedAt: formatDate(row.appliedAt),
-    payoutStatus: row.payoutStatus ?? null,
-  }));
+  // Separate fetch, not a LEFT JOIN: fraud_assessments is deliberately
+  // 1:many per application (Step 14), unlike payouts/submissions above, so
+  // joining it directly would duplicate applicant rows. See
+  // getLatestAssessmentsForApplications's own doc comment. Creator-only
+  // data -- getMyTasks below has no equivalent call.
+  const latestAssessments = await getLatestAssessmentsForApplications(
+    rows.map((row) => row.applicationId)
+  );
+
+  return rows.map((row) => {
+    const assessment = latestAssessments.get(row.applicationId);
+    return {
+      applicationId: row.applicationId,
+      applicant: row.applicantDisplayName ?? row.applicantWalletAddress,
+      status: row.status,
+      appliedAt: formatDate(row.appliedAt),
+      payoutStatus: row.payoutStatus ?? null,
+      submissionId: row.submissionId ?? null,
+      submissionContent: row.submissionContent ?? null,
+      submittedAt: row.submittedAt ? formatDate(row.submittedAt) : null,
+      evaluationVerdict: row.evaluationVerdict ?? null,
+      evaluationFeedback: row.evaluationFeedback ?? null,
+      fraudRiskLevel: assessment?.riskLevel ?? null,
+      fraudExplanation: assessment?.explanation ?? null,
+      fraudAnalyzedAt: assessment ? formatDate(assessment.analyzedAt) : null,
+    };
+  });
 }
 
 export interface ApplicationForApproval {

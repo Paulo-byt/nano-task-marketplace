@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { MyTask } from "@/types/application";
+import { SubmitWorkButton } from "@/components/dashboard/SubmitWorkButton";
 
 const STATUS_STYLES: Record<MyTask["status"], string> = {
   applied: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
@@ -18,31 +19,44 @@ export function MyTasksList({ tasks }: { tasks: MyTask[] }) {
       {tasks.length > 0 ? (
         <ul className="divide-y divide-black/10 dark:divide-white/10">
           {tasks.map((task) => (
-            <li
-              key={task.applicationId}
-              className="flex items-center justify-between gap-4 px-5 py-4"
-            >
-              <div className="min-w-0">
-                <Link
-                  href={`/marketplace/${task.taskId}`}
-                  className="truncate text-sm font-medium text-foreground hover:underline"
-                >
-                  {task.taskTitle}
-                </Link>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Applied {task.appliedAt}
-                </p>
+            <li key={task.applicationId} className="flex flex-col gap-3 px-5 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <Link
+                    href={`/marketplace/${task.taskId}`}
+                    className="truncate text-sm font-medium text-foreground hover:underline"
+                  >
+                    {task.taskTitle}
+                  </Link>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    Applied {task.appliedAt}
+                  </p>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-3">
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STATUS_STYLES[task.status]}`}
+                  >
+                    {task.status}
+                  </span>
+                  <span className="text-sm font-semibold text-foreground">
+                    {task.rewardUsdc.toFixed(2)} USDC
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-shrink-0 items-center gap-3">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STATUS_STYLES[task.status]}`}
-                >
-                  {task.status}
-                </span>
-                <span className="text-sm font-semibold text-foreground">
-                  {task.rewardUsdc.toFixed(2)} USDC
-                </span>
-              </div>
+              {task.status === "approved" && !task.hasSubmission && (
+                <SubmitWorkButton
+                  taskId={task.taskId}
+                  applicationId={task.applicationId}
+                />
+              )}
+              {task.hasSubmission && (
+                <div className="rounded-lg border border-black/10 bg-black/[0.02] px-3 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-white/[0.02] dark:text-zinc-400">
+                  <span className="font-medium text-foreground">
+                    Your submission:{" "}
+                  </span>
+                  {task.submissionContent}
+                </div>
+              )}
             </li>
           ))}
         </ul>

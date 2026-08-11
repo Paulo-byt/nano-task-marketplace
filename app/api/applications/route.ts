@@ -8,6 +8,8 @@ import {
   DuplicateApplicationError,
 } from "@/services/applications/applicationsService";
 import { createApplicationSubmittedNotification } from "@/services/dashboard/mockNotificationService";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
+import { log } from "@/lib/log";
 
 function extractString(body: unknown, key: string): string | undefined {
   if (typeof body !== "object" || body === null || !(key in body)) {
@@ -29,6 +31,14 @@ export async function GET() {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
 
+  const rateLimitResult = checkRateLimit(
+    `read:${sessionUser.id}`,
+    RATE_LIMITS.authenticatedRead
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
+  }
+
   const tasks = await getMyTasks(sessionUser.id);
   return NextResponse.json({ tasks });
 }
@@ -43,6 +53,14 @@ export async function POST(request: Request) {
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `applications:create:${sessionUser.id}`,
+    RATE_LIMITS.applicationCreate
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   let body: unknown;
@@ -84,7 +102,10 @@ export async function POST(request: Request) {
       );
     }
 
-    console.error("Failed to create application:", err);
+    log.error("create_application_failed", {
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json(
       { error: "Failed to create application." },
       { status: 500 }
@@ -94,7 +115,10 @@ export async function POST(request: Request) {
   try {
     await createApplicationSubmittedNotification(sessionUser.id, task.title);
   } catch (err) {
-    console.error("Failed to create application-submitted notification:", err);
+    log.error("create_application_notification_failed", {
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return NextResponse.json({ status: "created" }, { status: 201 });

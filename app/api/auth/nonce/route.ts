@@ -3,6 +3,12 @@ import { isValidAddress } from "@/lib/utils/address";
 import { getOrCreateUserByWallet } from "@/services/users/walletUser";
 import { createPendingSession } from "@/lib/auth/session";
 import { generateNonce } from "@/lib/auth/siwe";
+import {
+  checkRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 
 function extractString(body: unknown, key: string): string | undefined {
   if (typeof body !== "object" || body === null || !(key in body)) {
@@ -13,6 +19,14 @@ function extractString(body: unknown, key: string): string | undefined {
 }
 
 export async function POST(request: Request) {
+  const rateLimitResult = checkRateLimit(
+    `auth:nonce:${getClientIp(request)}`,
+    RATE_LIMITS.authNonce
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
+  }
+
   let body: unknown;
   try {
     body = await request.json();

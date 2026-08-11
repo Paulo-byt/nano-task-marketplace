@@ -3,6 +3,13 @@ import { db } from "@/db";
 import { notifications } from "@/db/schema";
 import type { Notification } from "@/types/dashboard";
 
+// Phase 9 hardening: this list previously had no LIMIT at all, growing
+// unbounded with every notification a user has ever received. 100 is a
+// generous cap that changes nothing for any current, real data -- it only
+// bounds the worst case going forward. A real paginated UI remains a
+// separate, deferred item.
+const NOTIFICATION_LIMIT = 100;
+
 function formatRelativeTime(date: Date): string {
   const diffMs = Date.now() - date.getTime();
   const diffSec = Math.round(diffMs / 1000);
@@ -29,7 +36,8 @@ export async function getNotifications(
     .select()
     .from(notifications)
     .where(eq(notifications.userId, userId))
-    .orderBy(desc(notifications.createdAt));
+    .orderBy(desc(notifications.createdAt))
+    .limit(NOTIFICATION_LIMIT);
 
   return rows.map((row) => ({
     id: row.id,

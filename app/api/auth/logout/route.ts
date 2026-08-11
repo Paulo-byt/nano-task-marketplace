@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { destroySession, SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import {
+  checkRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 
-export async function POST() {
+export async function POST(request: Request) {
+  const rateLimitResult = checkRateLimit(
+    `auth:logout:${getClientIp(request)}`,
+    RATE_LIMITS.authLogout
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
+  }
+
   const cookieStore = await cookies();
   const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 

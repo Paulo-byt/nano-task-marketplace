@@ -4,7 +4,19 @@ import {
   promoteSession,
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/session";
-import { extractNonce, verifySiweSignature } from "@/lib/auth/siwe";
+import {
+  extractNonce,
+  validateSiweMessageFields,
+  verifySiweSignature,
+} from "@/lib/auth/siwe";
+import { arcTestnet } from "@/lib/arc/chains";
+import {
+  checkRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
+import { log } from "@/lib/log";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // matches lib/auth/session.ts
 
@@ -17,6 +29,14 @@ function extractString(body: unknown, key: string): string | undefined {
 }
 
 export async function POST(request: Request) {
+  const rateLimitResult = checkRateLimit(
+    `auth:verify:${getClientIp(request)}`,
+    RATE_LIMITS.authVerify
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -42,8 +62,32 @@ export async function POST(request: Request) {
     );
   }
 
+  // Verifies the message's own claimed domain/URI/chain-id against this
+  // request's real host and this app's real chain, rather than trusting
+  // what the message itself asserts -- the same "never trust a client
+  // claim, always re-derive" posture already used everywhere else in this
+  // codebase. Deliberately checked before touching the database: a
+  // mismatched message is rejected without spending a lookup on it.
+  const expectedHost =
+    request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  const expectedUri = new URL(request.url).origin;
+  if (
+    !validateSiweMessageFields(message, {
+      domain: expectedHost,
+      uri: expectedUri,
+      chainId: arcTestnet.id,
+    })
+  ) {
+    log.warn("auth_verify_failed", { reason: "siwe_field_mismatch" });
+    return NextResponse.json(
+      { error: "Message domain, URI, or chain ID did not match." },
+      { status: 401 }
+    );
+  }
+
   const pending = await findPendingSessionByNonce(nonce);
   if (!pending || pending.expiresAt.getTime() < Date.now()) {
+    log.warn("auth_verify_failed", { reason: "nonce_expired_or_not_found" });
     return NextResponse.json(
       { error: "Sign-in request expired or not found. Please try again." },
       { status: 401 }
@@ -57,6 +101,7 @@ export async function POST(request: Request) {
   );
 
   if (!verified) {
+    log.warn("auth_verify_failed", { reason: "invalid_signature" });
     return NextResponse.json(
       { error: "Signature verification failed." },
       { status: 401 }

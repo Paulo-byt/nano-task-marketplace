@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { cancelTask, getTaskForFunding } from "@/services/marketplace/mockTasks";
 import { hasPendingPayoutForTask } from "@/services/payouts/payoutsService";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 
 export async function POST(
   request: Request,
@@ -17,6 +18,14 @@ export async function POST(
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `tasks:cancel:${sessionUser.id}`,
+    RATE_LIMITS.taskCancel
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   const { taskId } = await params;

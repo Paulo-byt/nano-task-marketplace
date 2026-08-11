@@ -6,6 +6,7 @@ import {
   getApplicationForApproval,
   rejectApplication,
 } from "@/services/applications/applicationsService";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 
 export async function POST(
   request: Request,
@@ -20,6 +21,14 @@ export async function POST(
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `applicants:reject:${sessionUser.id}`,
+    RATE_LIMITS.applicationReject
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   const { taskId, applicationId } = await params;

@@ -7,6 +7,8 @@ import {
   approveApplication,
   ApplicationNotApprovableError,
 } from "@/services/applications/applicationsService";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
+import { log } from "@/lib/log";
 
 export async function POST(
   request: Request,
@@ -21,6 +23,14 @@ export async function POST(
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `applicants:approve:${sessionUser.id}`,
+    RATE_LIMITS.applicationApprove
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   const { taskId, applicationId } = await params;
@@ -74,7 +84,10 @@ export async function POST(
       return NextResponse.json({ error: err.message }, { status: 409 });
     }
 
-    console.error("Failed to approve application:", err);
+    log.error("approve_application_failed", {
+      applicationId,
+      message: err instanceof Error ? err.message : String(err),
+    });
     return NextResponse.json(
       { error: "Failed to approve application." },
       { status: 500 }

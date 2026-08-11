@@ -17,6 +17,8 @@ import { evaluatePayoutReceipt } from "@/lib/arc/verifyPayout";
 import { arcPublicClient } from "@/lib/arc/publicClient";
 import { arcTestnet } from "@/lib/arc/chains";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
+import { log } from "@/lib/log";
 
 export async function POST(
   request: Request,
@@ -31,6 +33,14 @@ export async function POST(
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `applicants:payout:${sessionUser.id}`,
+    RATE_LIMITS.applicationPayout
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   const { taskId, applicationId } = await params;
@@ -121,7 +131,11 @@ export async function POST(
   try {
     txHash = await submitPayoutTransfer({ creatorWallet, workerWallet, amount });
   } catch (err) {
-    console.error("Failed to submit payout transfer:", err);
+    log.error("payout_submit_failed", {
+      payoutId: payout.payoutId,
+      applicationId,
+      message: err instanceof Error ? err.message : String(err),
+    });
     await markPayoutFailed(payout.payoutId);
     return NextResponse.json(
       { error: "Failed to submit the payout transaction." },
@@ -133,11 +147,12 @@ export async function POST(
   try {
     receipt = await arcPublicClient.waitForTransactionReceipt({ hash: txHash });
   } catch (err) {
-    console.error(
-      "Failed to obtain a receipt for payout transaction",
+    log.error("payout_receipt_failed", {
+      payoutId: payout.payoutId,
+      applicationId,
       txHash,
-      err
-    );
+      message: err instanceof Error ? err.message : String(err),
+    });
     await markPayoutFailed(payout.payoutId, txHash);
     return NextResponse.json(
       { error: "Could not confirm the payout transaction." },
@@ -182,9 +197,11 @@ export async function POST(
     // move funds on-chain here -- surfaced loudly rather than silently
     // dropped, since this is exactly the case an operator would need to
     // know about.
-    console.error(
-      `Payout ${payout.payoutId} was independently verified as successful (tx ${txHash}) but its database row was already resolved by a concurrent request.`
-    );
+    log.error("payout_resolved_by_concurrent_request", {
+      payoutId: payout.payoutId,
+      applicationId,
+      txHash,
+    });
     return NextResponse.json(
       {
         error: "Payout was already resolved by a concurrent request.",
@@ -202,9 +219,11 @@ export async function POST(
   // HTTP failure.
   const applicationCompleted = await markApplicationCompleted(applicationId);
   if (!applicationCompleted) {
-    console.error(
-      `Payout ${payout.payoutId} completed successfully (tx ${txHash}) but application ${applicationId} could not be marked completed -- it was not in an "approved" state at that moment.`
-    );
+    log.error("payout_completed_but_application_not_marked_completed", {
+      payoutId: payout.payoutId,
+      applicationId,
+      txHash,
+    });
   }
 
   return NextResponse.json({ status: "completed", txHash }, { status: 200 });

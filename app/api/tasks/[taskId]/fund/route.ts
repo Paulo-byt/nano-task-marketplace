@@ -10,6 +10,7 @@ import {
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
 import { EXECUTOR_ADDRESS } from "@/lib/arc/executor";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
+import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 
 const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 
@@ -36,6 +37,14 @@ export async function POST(
   const sessionUser = await getSessionUser(sessionId);
   if (!sessionUser) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+  }
+
+  const rateLimitResult = checkRateLimit(
+    `tasks:fund:${sessionUser.id}`,
+    RATE_LIMITS.taskFund
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
   }
 
   const { taskId } = await params;
