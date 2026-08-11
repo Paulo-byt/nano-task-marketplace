@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // k6 load-test scripts (load-tests/k6/**) run in k6's own JS runtime
+    // (goja), not Node/the browser -- they use k6-specific globals
+    // (__ENV, __VU, open) and import from "k6/http", which this project's
+    // TypeScript/Next.js ESLint rules have no context for.
+    "load-tests/k6/**",
   ]),
 ]);
 

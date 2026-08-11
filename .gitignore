@@ -36,6 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# load testing (Workstream C): real, if fund-less/ephemeral, session
+# cookies -- never commit regardless of content
+load-tests/k6/lib/sessions.local.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -179,6 +179,8 @@ Visit [http://localhost:3000](http://localhost:3000). Connect an injected wallet
 | `npm run db:migrate` | Apply pending migrations to `DATABASE_URL` |
 | `npm run db:seed` | Populate the database with the original marketplace fixture tasks |
 
+Deploying beyond local development (Vercel, environment/secrets strategy, Neon branching, rollback): see **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. Documentation only today — no production deployment is currently authorized.
+
 ## Current project status
 
 Phase 5 (mock-to-database migration) is complete. Marketplace, Applications, Notifications, Earnings, Profile, and Settings are all backed by Neon Postgres via Drizzle and scoped to the connected wallet's address. Dashboard Overview remains mock data. There is no authentication layer yet — a connected wallet address is trusted as-is, without a signature. The project is functional for demonstration purposes and is **not** production-ready.

@@ -9,20 +9,38 @@ import {
 import { arcTestnet } from "@/lib/arc/chains";
 import { arcPublicClient } from "@/lib/arc/publicClient";
 import { usdcAbi, USDC_TOKEN_ADDRESS } from "@/lib/arc/tokens";
-import { executorAccount, EXECUTOR_ADDRESS } from "@/lib/arc/executor";
+
+export type PayoutCustodyMode = "raw-key" | "circle";
 
 /**
- * The executor's own client, extended with read actions for the preflight
- * checks below. Both the reads and the transferFrom write happen through
- * this same account -- the executor never receives or holds funds at any
- * point; it only spends a creator's already-granted allowance and submits
- * the transaction that moves funds directly creator -> worker.
+ * Selects which custody path submits the real payout transaction.
+ * Defaults to "raw-key" -- the existing, already-proven path -- so an
+ * unset or misspelled value never silently changes behavior; "circle"
+ * must be selected explicitly and exactly. Server-only: never exposed
+ * through a NEXT_PUBLIC_ variable.
  */
-const executorClient = createWalletClient({
-  account: executorAccount,
-  chain: arcTestnet,
-  transport: http(),
-}).extend(publicActions);
+export function getPayoutCustodyMode(): PayoutCustodyMode {
+  return process.env.PAYOUT_CUSTODY_MODE === "circle" ? "circle" : "raw-key";
+}
+
+/**
+ * The address creators must grant their USDC allowance to, and the address
+ * that submits the payout transferFrom -- resolved according to the active
+ * custody mode. Each mode's own module is imported lazily (not statically
+ * at the top of this file) so that selecting "circle" never requires
+ * ARC_EXECUTOR_PRIVATE_KEY to be set, and selecting "raw-key" (the
+ * default) never requires any Circle configuration to exist -- the two
+ * paths stay fully independent.
+ */
+export async function getExecutorAddress(): Promise<Address> {
+  if (getPayoutCustodyMode() === "circle") {
+    const { getCircleExecutorAddress } = await import("@/lib/circle/executorWallet");
+    return getCircleExecutorAddress();
+  }
+
+  const { EXECUTOR_ADDRESS } = await import("@/lib/arc/executor");
+  return EXECUTOR_ADDRESS;
+}
 
 export type PreflightResult = { ok: true } | { ok: false; reason: string };
 
@@ -52,6 +70,8 @@ export async function preflightPayout({
     return { ok: false, reason: "Worker wallet address is not a valid address." };
   }
 
+  const executorAddress = await getExecutorAddress();
+
   const [balance, allowance] = await Promise.all([
     arcPublicClient.readContract({
       address: USDC_TOKEN_ADDRESS,
@@ -63,7 +83,7 @@ export async function preflightPayout({
       address: USDC_TOKEN_ADDRESS,
       abi: usdcAbi,
       functionName: "allowance",
-      args: [creatorWallet, EXECUTOR_ADDRESS],
+      args: [creatorWallet, executorAddress],
     }),
   ]);
 
@@ -85,11 +105,19 @@ export async function preflightPayout({
 }
 
 /**
- * Submits the real transferFrom(creator, worker, amount) transaction. The
- * executor is only ever the transaction submitter/delegated spender here
- * -- this call cannot and does not route funds through the executor's own
- * address; the ERC-20 transferFrom semantics move funds directly from
- * `creatorWallet` to `workerWallet`.
+ * Submits the real transferFrom(creator, worker, amount) transaction via
+ * whichever custody mode is active. In both modes the executor is only
+ * ever the transaction submitter/delegated spender -- this call cannot and
+ * does not route funds through the executor's own address; ERC-20
+ * transferFrom semantics move funds directly from `creatorWallet` to
+ * `workerWallet`.
+ *
+ * "circle" mode's own internal async create-then-poll lifecycle is fully
+ * contained in lib/circle/payoutTransfer.ts; by the time this function
+ * returns, the caller (the payout route) already has a real on-chain hash
+ * either way, and its own existing independent Arc RPC receipt
+ * verification (unchanged) runs identically regardless of which mode
+ * produced it.
  */
 export async function submitPayoutTransfer({
   creatorWallet,
@@ -100,6 +128,18 @@ export async function submitPayoutTransfer({
   workerWallet: Address;
   amount: bigint;
 }): Promise<Hash> {
+  if (getPayoutCustodyMode() === "circle") {
+    const { submitCirclePayoutTransfer } = await import("@/lib/circle/payoutTransfer");
+    return submitCirclePayoutTransfer({ creatorWallet, workerWallet, amount });
+  }
+
+  const { executorAccount } = await import("@/lib/arc/executor");
+  const executorClient = createWalletClient({
+    account: executorAccount,
+    chain: arcTestnet,
+    transport: http(),
+  }).extend(publicActions);
+
   return executorClient.writeContract({
     address: USDC_TOKEN_ADDRESS,
     abi: usdcAbi,

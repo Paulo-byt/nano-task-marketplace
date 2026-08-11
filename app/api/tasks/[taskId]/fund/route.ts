@@ -8,7 +8,7 @@ import {
   markTaskFunded,
 } from "@/services/marketplace/mockTasks";
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
-import { EXECUTOR_ADDRESS } from "@/lib/arc/executor";
+import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 
@@ -98,10 +98,15 @@ export async function POST(
 
   const expectedAmount = parseUnits(task.rewardUsdc.toFixed(2), USDC_DECIMALS);
 
+  // Resolved according to the active PAYOUT_CUSTODY_MODE -- a creator's
+  // approve() must target whichever address will actually submit the
+  // eventual payout, raw-key or Circle-controlled.
+  const expectedSpender = await getExecutorAddress();
+
   const verification = await verifyApprovalTransaction({
     txHash,
     expectedOwner: task.creatorWalletAddress as `0x${string}`,
-    expectedSpender: EXECUTOR_ADDRESS,
+    expectedSpender,
     expectedAmount,
   });
 

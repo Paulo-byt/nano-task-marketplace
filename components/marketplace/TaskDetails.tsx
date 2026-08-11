@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Task } from "@/types/task";
-import { EXECUTOR_ADDRESS } from "@/lib/arc/executor";
+import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { FundTaskButton } from "@/components/marketplace/FundTaskButton";
 
 const DIFFICULTY_STYLES: Record<Task["difficulty"], string> = {
@@ -29,7 +29,12 @@ const PLACEHOLDER_REQUIREMENTS = [
   "Payment is released automatically upon approval",
 ];
 
-export function TaskDetails({ task }: { task: Task }) {
+export async function TaskDetails({ task }: { task: Task }) {
+  // Server Component: resolved server-side according to the active
+  // PAYOUT_CUSTODY_MODE, then passed down as a plain address string --
+  // never a client-side import of executor/Circle configuration.
+  const executorAddress = await getExecutorAddress();
+
   return (
     <article className="flex flex-col gap-6 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
       <div className="flex flex-wrap items-center gap-2">
@@ -113,7 +118,7 @@ export function TaskDetails({ task }: { task: Task }) {
         >
           Apply
         </Link>
-        <FundTaskButton task={task} executorAddress={EXECUTOR_ADDRESS} />
+        <FundTaskButton task={task} executorAddress={executorAddress} />
       </div>
     </article>
   );
