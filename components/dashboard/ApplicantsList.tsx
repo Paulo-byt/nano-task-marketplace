@@ -3,6 +3,7 @@ import { ApproveApplicationButton } from "@/components/dashboard/ApproveApplicat
 import { RejectApplicationButton } from "@/components/dashboard/RejectApplicationButton";
 import { ReleasePayoutButton } from "@/components/dashboard/ReleasePayoutButton";
 import { RevokeApprovalButton } from "@/components/dashboard/RevokeApprovalButton";
+import { RetryPayoutButton } from "@/components/dashboard/RetryPayoutButton";
 import { EvaluateSubmissionButton } from "@/components/ai/EvaluateSubmissionButton";
 import { AnalyzeFraudRiskButton } from "@/components/ai/AnalyzeFraudRiskButton";
 
@@ -31,16 +32,24 @@ const STATUS_STYLES: Record<Applicant["status"], string> = {
   rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
 };
 
-const PAYOUT_STATUS_STYLES: Record<"completed" | "failed" | "cancelled", string> = {
+const PAYOUT_STATUS_STYLES: Record<
+  "completed" | "failed" | "cancelled" | "retrying",
+  string
+> = {
   completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   failed: "bg-red-500/10 text-red-600 dark:text-red-400",
   cancelled: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+  retrying: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
 };
 
-const PAYOUT_STATUS_LABELS: Record<"completed" | "failed" | "cancelled", string> = {
+const PAYOUT_STATUS_LABELS: Record<
+  "completed" | "failed" | "cancelled" | "retrying",
+  string
+> = {
   completed: "Paid",
   failed: "Payout Failed",
   cancelled: "Cancelled",
+  retrying: "Retrying payout",
 };
 
 const RISK_STYLES: Record<NonNullable<Applicant["fraudRiskLevel"]>, string> = {
@@ -100,7 +109,13 @@ export function ApplicantsList({
                     </>
                   )}
                   {applicant.status === "approved" &&
-                    applicant.payoutStatus !== "completed" && (
+                    applicant.payoutStatus !== "completed" &&
+                    // A payout that is actively retrying must not be
+                    // cancellable out from under an in-flight resubmission
+                    // -- the backend guard (revokeApproval's conditional
+                    // update) already refuses this unconditionally, but the
+                    // button is hidden too rather than left to always fail.
+                    applicant.payoutStatus !== "retrying" && (
                       <RevokeApprovalButton
                         taskId={taskId}
                         applicationId={applicant.applicationId}
@@ -113,9 +128,17 @@ export function ApplicantsList({
                         applicationId={applicant.applicationId}
                       />
                     )}
+                  {applicant.status === "approved" &&
+                    applicant.payoutStatus === "failed" && (
+                      <RetryPayoutButton
+                        taskId={taskId}
+                        applicationId={applicant.applicationId}
+                      />
+                    )}
                   {(applicant.payoutStatus === "completed" ||
                     applicant.payoutStatus === "failed" ||
-                    applicant.payoutStatus === "cancelled") && (
+                    applicant.payoutStatus === "cancelled" ||
+                    applicant.payoutStatus === "retrying") && (
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-medium ${PAYOUT_STATUS_STYLES[applicant.payoutStatus]}`}
                     >

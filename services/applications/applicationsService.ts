@@ -284,7 +284,14 @@ export interface RevokeApprovalResult {
  * operation's real safety gate: a payout that is already 'completed' (or
  * already 'cancelled') simply fails to match, this function throws before
  * ever touching the application row, and the transaction rolls back
- * leaving nothing changed. Only once the payout is genuinely cancelled
+ * leaving nothing changed. This is a deliberate allow-list, not a
+ * not-equal check -- Fix #8 added a fifth payout status, 'retrying' (an
+ * active resubmission attempt in progress, see markPayoutRetrying in
+ * payoutsService.ts), and it is intentionally never added to this OR
+ * clause: a payout mid-retry must never be cancelled out from under an
+ * in-flight resubmission, so the allow-list simply never matches it,
+ * exactly as it already never matched 'completed'. Only once the payout is
+ * genuinely cancelled
  * does the application itself move 'approved' -> 'rejected' (also
  * conditional, the same idiom as every other write in this file). Ordering
  * the payout write first, and gating the whole transaction on it, is what

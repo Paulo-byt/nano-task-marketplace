@@ -23,7 +23,7 @@ export interface Payout {
   id: string;
   taskTitle: string;
   amountUsdc: number;
-  status: "completed" | "pending" | "failed" | "cancelled";
+  status: "completed" | "pending" | "failed" | "cancelled" | "retrying";
   date: string;
 }
 
