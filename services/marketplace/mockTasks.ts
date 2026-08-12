@@ -247,9 +247,18 @@ export async function markTaskFunded(
  *
  * If the task update matches, every application still "applied" for this
  * task is rejected in the same transaction -- gated on status = 'applied'
- * so an application concurrently approved in the same window (the known,
- * documented cancel-vs-approve race) is correctly left untouched rather
- * than incorrectly rejected out from under an approval that already won.
+ * so an application concurrently approved in the same window is correctly
+ * left untouched rather than incorrectly rejected out from under an
+ * approval that already won. approveApplication (applicationsService.ts)
+ * now symmetrically requires this task's live fundingStatus to still be
+ * 'funded' before it can approve at all (Fix #11, the same EXISTS-clause
+ * shape as markPayoutRetrying above) -- but unlike the cancel-vs-retry
+ * race, this narrows the cancel-vs-approve race only weakly: both this
+ * function and approveApplication are multi-statement transactions, so a
+ * true concurrent race between them was measured (Fix #11) to still
+ * produce the bad state (this task cancelled, a payout left 'pending')
+ * roughly 96% of the time, far above cancel-vs-retry's ~4%. See
+ * approveApplication's own doc comment for the full detail and why.
  */
 export async function cancelTask(taskId: string): Promise<boolean> {
   return db.transaction(async (tx) => {

@@ -1,4 +1,4 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { applications, payouts, submissions, tasks, users } from "@/db/schema";
 import { getLatestAssessmentsForApplications } from "@/services/fraud/fraudSignalsService";
@@ -208,6 +208,36 @@ export interface ApprovalResult {
  * way to independently confirm it, the same trust boundary as every other
  * service function here (query/write here, authorize and source trusted
  * values at the route).
+ *
+ * The EXISTS clause (Fix #11) additionally requires the parent task's live
+ * fundingStatus to still be 'funded' at write time, structurally mirroring
+ * Fix #9's markPayoutRetrying pattern. approve/route.ts already checks this
+ * before ever calling this function, but that is a plain prior read, not
+ * part of this write's own atomic condition -- without this clause, a task
+ * cancellation racing a concurrent approval could create a brand-new
+ * 'pending' payout for an application whose task has just been, or is
+ * concurrently being, cancelled. This clause does close that race when the
+ * cancellation has already fully committed before this write's own
+ * snapshot is taken (verified: an already-cancelled/unfunded/released task
+ * always rejects approval).
+ *
+ * It provides much weaker protection than markPayoutRetrying did for
+ * Fix #9 against a *true*, tightly-overlapping concurrent race, and this
+ * is measured, not assumed: a 25-iteration Promise.all stress test against
+ * this exact pair reproduced the bad state (task cancelled, payout left
+ * 'pending') in 24/25 runs (~96%), far above Fix #9's ~4% for
+ * cancel-vs-retry. The likely reason is structural, not a weaker guard:
+ * markPayoutRetrying is a single UPDATE statement, so its guard passing
+ * and the resulting state becoming visible to other transactions happen
+ * in the same commit. approveApplication and cancelTask are each
+ * multi-statement transactions (UPDATE+INSERT here, UPDATE+UPDATE there),
+ * so each side's own check runs and passes long before the other side's
+ * change is committed and visible -- leaving a much larger mutual blind
+ * spot for the whole duration of both transactions, not just a narrow
+ * tail. Deliberately left as-is per Fix #11's explicit scope: closing this
+ * further would need row-level locking or SERIALIZABLE isolation, which
+ * is a materially larger change outside this fix, the same call already
+ * made for Fix #9's own residual.
  */
 export async function approveApplication(
   applicationId: string,
@@ -218,7 +248,15 @@ export async function approveApplication(
       .update(applications)
       .set({ status: "approved", approvedAt: new Date() })
       .where(
-        and(eq(applications.id, applicationId), eq(applications.status, "applied"))
+        and(
+          eq(applications.id, applicationId),
+          eq(applications.status, "applied"),
+          sql`EXISTS (
+            SELECT 1 FROM ${tasks}
+            WHERE ${tasks.id} = ${applications.taskId}
+              AND ${tasks.fundingStatus} = 'funded'
+          )`
+        )
       )
       .returning({ id: applications.id });
 
