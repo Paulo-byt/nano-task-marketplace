@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { applications, payouts, users } from "@/db/schema";
+import { applications, payouts, tasks, users } from "@/db/schema";
 
 export interface PayoutForRelay {
   payoutId: string;
@@ -110,12 +110,58 @@ export async function markPayoutFailed(
  * only matches 'pending' or 'failed'): once a payout is `retrying`, a
  * concurrent revoke-approval request cannot cancel it out from under an
  * in-flight resubmission attempt.
+ *
+ * The EXISTS clause (Fix #9) is what actually closes the cancel-vs-retry
+ * race at the database level, mirroring cancelTask's own NOT EXISTS guard
+ * in mockTasks.ts exactly. retry-payout/route.ts already checks
+ * task.fundingStatus === 'funded' before ever calling this function, but
+ * that is a plain prior read, not part of this write's own atomic
+ * condition -- proven insufficient on its own by a real concurrent
+ * Promise.all race during verification, where cancelTask and this function
+ * both committed because neither write's guard accounted for the other
+ * table. Checking the task's live funding status again here, inside the
+ * same conditional UPDATE that flips the payout to 'retrying', means
+ * whichever of the two writes actually commits first is reflected in the
+ * loser's own guard: a task cancellation that has already committed makes
+ * this EXISTS clause false and this call returns false; a retry that has
+ * already committed makes cancelTask's NOT EXISTS clause false and that
+ * call returns false.
+ *
+ * This narrows the race dramatically but does not mathematically eliminate
+ * it: two independent conditional UPDATEs that each only *read* the other's
+ * table (via EXISTS/NOT EXISTS, never a locking read) are still classic
+ * Postgres write skew under READ COMMITTED -- if both statements take their
+ * per-statement snapshot before either has committed, both can still see
+ * the other's pre-change state and both commit. Measured directly: a
+ * 25-iteration back-to-back Promise.all stress test (no natural spacing
+ * between the two operations) reproduced this once (~4%). Real usage has
+ * actual network round-trip latency between the two separate HTTP requests
+ * that would trigger this, making the practical window far narrower than
+ * that synthetic test. Fully eliminating it would require explicit
+ * SELECT ... FOR UPDATE row locking with carefully consistent lock
+ * ordering across both functions (real deadlock risk otherwise) or
+ * SERIALIZABLE isolation with retry-on-conflict logic -- a materially
+ * larger change than this fix's scope, and not a pattern used anywhere
+ * else in this codebase. Deliberately left as a documented residual risk,
+ * the same class already accepted for the pending/completed pair
+ * elsewhere in this codebase (see cancelTask's own docstring).
  */
 export async function markPayoutRetrying(payoutId: string): Promise<boolean> {
   const rows = await db
     .update(payouts)
     .set({ status: "retrying" })
-    .where(and(eq(payouts.id, payoutId), eq(payouts.status, "failed")))
+    .where(
+      and(
+        eq(payouts.id, payoutId),
+        eq(payouts.status, "failed"),
+        sql`EXISTS (
+          SELECT 1 FROM ${applications}
+          INNER JOIN ${tasks} ON ${applications.taskId} = ${tasks.id}
+          WHERE ${applications.id} = ${payouts.applicationId}
+            AND ${tasks.fundingStatus} = 'funded'
+        )`
+      )
+    )
     .returning({ id: payouts.id });
 
   return rows.length > 0;

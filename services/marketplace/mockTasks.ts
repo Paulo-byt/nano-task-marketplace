@@ -215,7 +215,7 @@ export async function markTaskFunded(
 /**
  * Atomically cancels a task and rejects its still-"applied" applications in
  * one transaction (Step 9). The NOT EXISTS clause is what actually makes
- * this race-safe against a pending payout -- not the route's earlier
+ * this race-safe against an active payout -- not the route's earlier
  * hasPendingPayoutForTask check, which is only a friendly pre-check for a
  * clear error message, the same split already used by the payout route
  * (preflightPayout + a recheck, then the real atomic guard at the write).
@@ -225,6 +225,25 @@ export async function markTaskFunded(
  * already visible here (cancellation correctly fails) or it is not yet
  * committed at all (ordinary read-committed race, same class already
  * accepted for approve/payout and documented on the deferred backlog).
+ *
+ * The NOT EXISTS status check covers both 'pending' and 'retrying' --
+ * Fix #9. A 'retrying' payout (Fix #8) represents real, in-flight
+ * reconciliation/submission work exactly like 'pending' does, so a task
+ * cancellation racing against an active retry must lose the same way it
+ * already loses against a fresh release: whichever write actually commits
+ * first wins, and the loser's own conditional guard simply matches zero
+ * rows. 'failed', 'completed', and 'cancelled' are deliberately not
+ * included -- none of them represent an in-flight operation, and 'failed'
+ * in particular must stay cancellable, since it is the whole reason Fix #8's
+ * retry path exists.
+ *
+ * markPayoutRetrying (payoutsService.ts) symmetrically checks this task's
+ * live fundingStatus before ever writing 'retrying', so whichever of the
+ * two writes commits first is the one the other correctly loses against.
+ * That said, this remains an ordinary read-committed race, not a
+ * lock-based one -- see markPayoutRetrying's own doc comment for the
+ * measured residual (a rare, narrow write-skew window that neither guard
+ * fully eliminates on its own).
  *
  * If the task update matches, every application still "applied" for this
  * task is rejected in the same transaction -- gated on status = 'applied'
@@ -244,7 +263,7 @@ export async function cancelTask(taskId: string): Promise<boolean> {
           sql`NOT EXISTS (
             SELECT 1 FROM ${payouts}
             INNER JOIN ${applications} ON ${payouts.applicationId} = ${applications.id}
-            WHERE ${applications.taskId} = ${tasks.id} AND ${payouts.status} = 'pending'
+            WHERE ${applications.taskId} = ${tasks.id} AND ${payouts.status} IN ('pending', 'retrying')
           )`
         )
       )
