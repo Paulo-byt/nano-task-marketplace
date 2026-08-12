@@ -2,6 +2,7 @@ import type { Applicant } from "@/types/postedTask";
 import { ApproveApplicationButton } from "@/components/dashboard/ApproveApplicationButton";
 import { RejectApplicationButton } from "@/components/dashboard/RejectApplicationButton";
 import { ReleasePayoutButton } from "@/components/dashboard/ReleasePayoutButton";
+import { RevokeApprovalButton } from "@/components/dashboard/RevokeApprovalButton";
 import { EvaluateSubmissionButton } from "@/components/ai/EvaluateSubmissionButton";
 import { AnalyzeFraudRiskButton } from "@/components/ai/AnalyzeFraudRiskButton";
 
@@ -30,14 +31,16 @@ const STATUS_STYLES: Record<Applicant["status"], string> = {
   rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
 };
 
-const PAYOUT_STATUS_STYLES: Record<"completed" | "failed", string> = {
+const PAYOUT_STATUS_STYLES: Record<"completed" | "failed" | "cancelled", string> = {
   completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
   failed: "bg-red-500/10 text-red-600 dark:text-red-400",
+  cancelled: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
 };
 
-const PAYOUT_STATUS_LABELS: Record<"completed" | "failed", string> = {
+const PAYOUT_STATUS_LABELS: Record<"completed" | "failed" | "cancelled", string> = {
   completed: "Paid",
   failed: "Payout Failed",
+  cancelled: "Cancelled",
 };
 
 const RISK_STYLES: Record<NonNullable<Applicant["fraudRiskLevel"]>, string> = {
@@ -97,6 +100,13 @@ export function ApplicantsList({
                     </>
                   )}
                   {applicant.status === "approved" &&
+                    applicant.payoutStatus !== "completed" && (
+                      <RevokeApprovalButton
+                        taskId={taskId}
+                        applicationId={applicant.applicationId}
+                      />
+                    )}
+                  {applicant.status === "approved" &&
                     applicant.payoutStatus === "pending" && (
                       <ReleasePayoutButton
                         taskId={taskId}
@@ -104,7 +114,8 @@ export function ApplicantsList({
                       />
                     )}
                   {(applicant.payoutStatus === "completed" ||
-                    applicant.payoutStatus === "failed") && (
+                    applicant.payoutStatus === "failed" ||
+                    applicant.payoutStatus === "cancelled") && (
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-medium ${PAYOUT_STATUS_STYLES[applicant.payoutStatus]}`}
                     >

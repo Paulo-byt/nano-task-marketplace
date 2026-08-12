@@ -113,6 +113,7 @@ export const RATE_LIMITS = {
   applicationCreate: { limit: 40, windowMs: HOUR },
   applicationApprove: { limit: 30, windowMs: HOUR },
   applicationReject: { limit: 30, windowMs: HOUR },
+  applicationRevokeApproval: { limit: 30, windowMs: HOUR },
   applicationPayout: { limit: 10, windowMs: HOUR },
   applicationSubmit: { limit: 30, windowMs: HOUR },
   applicationEvaluate: { limit: 5, windowMs: HOUR },

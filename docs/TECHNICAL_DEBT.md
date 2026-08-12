@@ -14,17 +14,6 @@ Items that block production readiness or represent an active security gap.
 
 - **Add secondary indexes on foreign-key columns used in wallet-scoped joins:** `applications.applicant_id`, `payouts.application_id`, `notifications.user_id`. Invisible at current (test-fixture) data volume, since Postgres happily sequential-scans a handful of rows. Deferred because index tuning against realistic data volume wasn't yet possible to validate meaningfully — adding indexes speculatively without a query-plan justification is its own minor debt.
 
-### Payments
-
-- **Automatic payout generation.** Every `payouts` row in the database today exists only from manual test seeding; nothing in the application creates one. Explicitly excluded from Phase 5 ("Do not add Circle payout functionality yet" was stated directly in the Earnings migration's scope).
-- **Transaction lifecycle tracking.** `payouts.tx_hash` exists in the schema but nothing ever populates or reads it. Blocked on the above — there's no transaction to track until payouts are actually executed.
-
-### Applications
-
-- **Approval workflow.** `applications.status` can only ever become `'applied'` through the app itself today; `'approved'`, `'rejected'`, and `'completed'` exist only because they were manually seeded for testing Earnings and Profile aggregation. Deferred because it requires a product decision — who is allowed to approve an application, the task creator or an admin — that hasn't been made yet.
-- **Rejection workflow.** Same status, same blocker as approval.
-- **Completion lifecycle.** Same blocker; completion is also the trigger point for payout creation, so it's coupled to the Payments items above.
-
 ### Testing
 
 - **No automated test suite exists in this project at all** — no unit tests, no integration tests, no committed end-to-end tests. Every verification performed during Phase 5 (Playwright browser checks, direct database queries) was run from temporary, disposable scripts and deleted after use rather than checked in. This is a real, meaningful gap for a project of this size. Deferred because each phase's own manual-but-rigorous verification loop (build, then browser-drive, then database-check) was judged sufficient to ship each migration correctly, but that discipline does not protect against future regressions the way a committed suite would.
@@ -43,6 +32,10 @@ Items that meaningfully improve correctness, performance, or maintainability, bu
 ### Applications
 
 - **Withdrawal.** An applicant cannot currently cancel or withdraw an application once submitted. Deferred alongside the approval/rejection/completion workflow, since it's part of the same unbuilt lifecycle.
+
+### Payments
+
+- **Retry a failed payout.** A creator can now decline (revoke approval for) an application whose payout failed, but there is no way to retry the same payout instead — the only options today are "cancel it" or "leave it failed forever," with no in-app path back to `pending`. Deliberately excluded from the Phase 10 post-approval-decline fix, which was scoped narrowly to the decline path; some failure causes (a transient RPC issue, or the creator topping up their allowance) are plausibly recoverable and shouldn't necessarily force discarding the approval, so this is worth revisiting as its own, separately-scoped feature.
 
 ### Dashboard
 
@@ -121,3 +114,13 @@ Items that were tracked here as active debt and have since been closed out. Kept
 - **SIWE (Sign-In With Ethereum) implementation.** Wallet address was previously a client-supplied claim with no signature check. Originally deferred because Phase 5's scope was explicitly "identity only" — see [DECISIONS.md#adr-005](./DECISIONS.md#adr-005-wallet-first-identity). **Resolved (Phase 6):** `POST /api/auth/nonce`, `POST /api/auth/verify`, `GET /api/auth/session`, and `POST /api/auth/logout` now implement the full EIP-4361 flow — nonce issuance, wagmi message signing, server-side signature recovery via viem's `recoverMessageAddress`, and a real `sessions`-table-backed cookie session.
 - **Remove `walletAddress` from client request bodies/query params as the trust boundary.** `POST /api/applications` previously accepted `walletAddress` directly in the JSON body; every `GET` route previously accepted `?wallet=` with no verification. Originally deferred alongside SIWE, since the fix *is* replacing the trust boundary. **Resolved (Phase 6):** a repository-wide audit (Step 10) confirmed zero remaining `?wallet=` usages anywhere in application code, and `getUserByWallet`/`getOrCreateUserByWallet` are now called from exactly one place — the nonce route, at the moment a claim is first made.
 - **Protect API routes behind session validation.** All five routes were previously open to anyone who could guess or observe a wallet address. Originally deferred until sessions existed to protect them with. **Resolved (Phase 6):** `/api/applications`, `/api/notifications`, `/api/earnings`, `/api/profile`, and `/api/settings` all now resolve identity exclusively via `getSessionUser()` against the session cookie, returning 401 without a valid session. Verified with two isolated test wallets confirming no cross-user data leakage and forged `?wallet=` parameters having no effect, across all five routes.
+
+### Payments
+
+- **Automatic payout generation.** Every `payouts` row previously existed only from manual test seeding, with nothing in the application creating one. Originally excluded from Phase 5 ("Do not add Circle payout functionality yet" was stated directly in the Earnings migration's scope). **Resolved (Phase 7):** approving an application (`POST /api/tasks/[taskId]/applicants/[applicationId]/approve`) now creates a real `payouts` row via `approveApplication()`, and releasing it (`POST .../payout`) submits a real `transferFrom(creator, worker, amount)` transaction through `lib/arc/payoutRelay.ts`, independently re-verified against Arc's own RPC receipt before being marked complete. Phase 10 Workstream A added a second, Circle-managed signing path (`lib/circle/`) alongside this original raw-key path, selected via `PAYOUT_CUSTODY_MODE` — both remain testnet-only.
+- **Transaction lifecycle tracking.** `payouts.tx_hash` previously existed in the schema but nothing populated or read it. **Resolved (Phase 7):** the payout route now writes the real on-chain transaction hash to `payouts.tx_hash` via `markPayoutCompleted`/`markPayoutFailed` once a payout attempt resolves, in either custody mode.
+
+### Applications
+
+- **Approval / rejection / completion workflow.** `applications.status` previously could only ever become `'applied'` through the app itself; `'approved'`, `'rejected'`, and `'completed'` existed only because they were manually seeded for testing. Originally deferred pending a product decision on who may approve an application. **Resolved (Phase 7):** the task creator — and only the task creator — can now approve or reject an application (`POST .../approve`, `POST .../reject`), each guarded so it only applies to an application still in the `'applied'` state; releasing a payout transitions the application to `'completed'` via `markApplicationCompleted()`.
+- **Post-approval decline** (the limitation flagged in [LEGAL_REVIEW_CHECKLIST.md](./LEGAL_REVIEW_CHECKLIST.md#11-the-existing-post-approval-decline-limitation)). Originally, once an application was approved there was no path back to `'rejected'` — an approval could not be declined after the fact for any reason, including a payout that had failed with no other recourse. **Resolved (Phase 10):** `POST .../revoke-approval` (a separate endpoint from `/reject`, task-creator-only) transitions an approved application back to `'rejected'` and its payout to a new `payout_status` value, `'cancelled'`, but only while that payout has not already completed. The guard is a conditional `UPDATE ... WHERE status IN ('pending', 'failed')` on the payout row, evaluated at write time inside the same transaction as the application-status change — not a separate check-then-write — so this can never win a race against a payout that has already, or concurrently, completed; a `409` is returned and nothing is changed in that case. Retrying a failed payout (as opposed to declining it) remains unbuilt — see Medium Priority below.

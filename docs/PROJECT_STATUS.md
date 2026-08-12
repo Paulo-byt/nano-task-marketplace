@@ -2,6 +2,8 @@
 
 **Snapshot as of:** end of Phase 6 (wallet authentication complete, Step 10 security audit passed), immediately prior to Phase 7.
 
+> **Status update:** Phases 7 through 10 have since been completed. The rest of this document is preserved as originally written, describing the project exactly as it stood at the end of Phase 6 — it is historical, not current. In particular, every reference below to payout/approval/rejection/completion as "remaining" or "not yet built" was accurate for that snapshot but is no longer true: Phase 7 implemented a real payout relay and the approval/rejection/completion workflow (see [TECHNICAL_DEBT.md's Resolved section](./TECHNICAL_DEBT.md#resolved)), and Phase 10 added an alternate Circle-managed payout-signing path alongside it (see [DEPLOYMENT.md](./DEPLOYMENT.md)). For current project state, see those two documents rather than this one.
+
 A concise executive summary of where Nano Task Marketplace stands. For depth: [ARCHITECTURE.md](./ARCHITECTURE.md) (how it's built), [DECISIONS.md](./DECISIONS.md) (why), [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) (what's deferred), [ROADMAP.md](./ROADMAP.md) (what's next).
 
 ---
@@ -39,7 +41,7 @@ The data layer is mature and consistent: one schema (six tables, unchanged since
 
 ## Production readiness assessment
 
-**Not production-ready.** Phase 6 (authentication) is now complete, removing the identity-spoofing blocker that previously made any real-user exposure unsafe. What remains: Phase 7 (a real payout lifecycle) is needed before "USDC rewards" is more than a demonstration — every payout in the database today still exists only because it was manually inserted for testing — and the remaining items in [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) (rate limiting, audit logging, no automated test suite, CSRF tokens, among others) should be addressed before handling real funds or real users at scale. This assessment makes no claim about mainnet or production-payment readiness, which remain separately gated behind Phase 9 (production hardening) and Phase 10 (launch readiness).
+**Not production-ready.** Phase 6 (authentication) is now complete, removing the identity-spoofing blocker that previously made any real-user exposure unsafe. What remains: Phase 7 (a real payout lifecycle) is needed before "USDC rewards" is more than a demonstration — every payout in the database at that time existed only because it was manually inserted for testing (no longer true — see the status update above) — and the remaining items in [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md) (rate limiting, audit logging, no automated test suite, CSRF tokens, among others) should be addressed before handling real funds or real users at scale. This assessment makes no claim about mainnet or production-payment readiness, which remain separately gated behind Phase 9 (production hardening) and Phase 10 (launch readiness).
 
 ## Known limitations
 

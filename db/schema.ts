@@ -46,6 +46,7 @@ export const payoutStatusEnum = pgEnum("payout_status", [
   "pending",
   "completed",
   "failed",
+  "cancelled",
 ]);
 
 export const submissionVerdictEnum = pgEnum("submission_verdict", [

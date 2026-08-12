@@ -4,7 +4,7 @@ import { applications, payouts, users } from "@/db/schema";
 
 export interface PayoutForRelay {
   payoutId: string;
-  payoutStatus: "pending" | "completed" | "failed";
+  payoutStatus: "pending" | "completed" | "failed" | "cancelled";
   workerWalletAddress: string;
 }
 

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { db } from "@/db";
 import { applications, payouts, submissions, tasks, users } from "@/db/schema";
 import { getLatestAssessmentsForApplications } from "@/services/fraud/fraudSignalsService";
@@ -9,6 +9,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export class DuplicateApplicationError extends Error {}
 export class ApplicationNotApprovableError extends Error {}
+export class ApprovalNotRevocableError extends Error {}
 
 function isUniqueViolation(err: unknown): boolean {
   // Drizzle wraps the underlying Postgres error (which carries `.code`) in
@@ -266,6 +267,84 @@ export async function rejectApplication(applicationId: string): Promise<boolean>
     .returning({ id: applications.id });
 
   return rows.length > 0;
+}
+
+export interface RevokeApprovalResult {
+  applicationId: string;
+  payoutId: string;
+}
+
+/**
+ * Revokes an approval and cancels its payout in one atomic transaction --
+ * the reverse of approveApplication, following the same "two related
+ * writes, one transaction" precedent that function already established.
+ *
+ * The payout row is updated FIRST, and its conditional UPDATE (status IN
+ * ('pending', 'failed') -- not a separate check-then-write) is the
+ * operation's real safety gate: a payout that is already 'completed' (or
+ * already 'cancelled') simply fails to match, this function throws before
+ * ever touching the application row, and the transaction rolls back
+ * leaving nothing changed. Only once the payout is genuinely cancelled
+ * does the application itself move 'approved' -> 'rejected' (also
+ * conditional, the same idiom as every other write in this file). Ordering
+ * the payout write first, and gating the whole transaction on it, is what
+ * makes this safe against a payout that is completing concurrently: Postgres
+ * row-level locking under a concurrent markPayoutCompleted/markPayoutFailed
+ * (payoutsService.ts) means exactly one of "this revoke" or "that payout
+ * resolution" wins the race for real, and the loser's own conditional
+ * UPDATE simply matches zero rows -- the database itself is the source of
+ * truth at the moment of the write, never an earlier read.
+ *
+ * Known, unsolved limitation (deliberately not hidden): the on-chain
+ * transfer in payoutRelay.ts is not part of this or any database
+ * transaction. If the payout route has already submitted a real
+ * transferFrom and is still waiting on its receipt when this runs, the
+ * payouts row can still genuinely read 'pending' in the database even
+ * though a transfer is already in flight -- this function has no way to
+ * see that, and would cancel a payout that is, moments later, actually
+ * going to succeed on-chain. This is the same class of gap as the
+ * pre-existing crash window between a successful submission and the
+ * completion-marking write (payout/route.ts's own comments already
+ * acknowledge that window); this change adds one more trigger for it, not
+ * a new kind of risk. See docs/TECHNICAL_DEBT.md.
+ */
+export async function revokeApproval(
+  applicationId: string
+): Promise<RevokeApprovalResult> {
+  return db.transaction(async (tx) => {
+    const [cancelledPayout] = await tx
+      .update(payouts)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          eq(payouts.applicationId, applicationId),
+          or(eq(payouts.status, "pending"), eq(payouts.status, "failed"))
+        )
+      )
+      .returning({ id: payouts.id });
+
+    if (!cancelledPayout) {
+      throw new ApprovalNotRevocableError(
+        "This application's payout has already completed (or no longer exists) and can no longer be revoked."
+      );
+    }
+
+    const [updated] = await tx
+      .update(applications)
+      .set({ status: "rejected" })
+      .where(
+        and(eq(applications.id, applicationId), eq(applications.status, "approved"))
+      )
+      .returning({ id: applications.id });
+
+    if (!updated) {
+      throw new ApprovalNotRevocableError(
+        "Application is no longer in an approved state."
+      );
+    }
+
+    return { applicationId, payoutId: cancelledPayout.id };
+  });
 }
 
 /**

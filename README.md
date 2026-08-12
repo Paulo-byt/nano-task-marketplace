@@ -126,9 +126,13 @@ Create a `.env.local` file in the project root (this file is git-ignored and mus
 
 | Variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | Reserved for the planned Claude-powered task generation/evaluation features. Not yet consumed by any code. |
-| `CIRCLE_API_KEY` | Reserved for Circle-integrated payout functionality. Not yet consumed by any code. |
 | `DATABASE_URL` | Neon PostgreSQL connection string. Required — the app will not start without it. |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key, powering AI-assisted task drafting, submission evaluation, and fraud-risk analysis (`lib/ai/`). Required only when one of those features is actually invoked. |
+| `PAYOUT_CUSTODY_MODE` | Selects the payout-signing path: `raw-key` (default — used when unset or any value other than exactly `circle`) or `circle`. See `lib/arc/payoutRelay.ts`. |
+| `ARC_EXECUTOR_PRIVATE_KEY` | Private key for the raw-key payout executor (`lib/arc/executor.ts`). Required when `PAYOUT_CUSTODY_MODE` is unset or `raw-key` (today's default). |
+| `CIRCLE_API_KEY` | Circle Developer-Controlled Wallets API key (`lib/circle/client.ts`). Required only when `PAYOUT_CUSTODY_MODE=circle`. |
+| `CIRCLE_ENTITY_SECRET` | Circle entity-level authorization secret, used alongside `CIRCLE_API_KEY` (`lib/circle/client.ts`). Required only when `PAYOUT_CUSTODY_MODE=circle`. |
+| `CIRCLE_EXECUTOR_WALLET_ID` | The provisioned Circle wallet id used as the payout executor when `PAYOUT_CUSTODY_MODE=circle` (`lib/circle/executorWallet.ts`). Created once via `scripts/circle-provision-testnet-wallet.ts`, never at request time. |
 
 **Client-exposed** (must use the `NEXT_PUBLIC_` prefix to be readable in the browser):
 

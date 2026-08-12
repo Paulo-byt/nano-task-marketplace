@@ -9,7 +9,14 @@ export async function getEarningsSummary(
 ): Promise<EarningsSummary> {
   const [row] = await db
     .select({
-      totalEarningsUsdc: sql<string>`coalesce(sum(${payouts.amountUsdc}), 0)`,
+      // Phase 10 fix: previously summed every payout row regardless of
+      // status, so a pending, failed, or cancelled amount would silently
+      // inflate this total. Only a completed payout represents money the
+      // worker actually received -- matches availableBalanceUsdc's own
+      // filter exactly (the two are computed identically today, since this
+      // app has no separate "withdraw" step: a completed payout already
+      // sent funds directly to the worker's own wallet).
+      totalEarningsUsdc: sql<string>`coalesce(sum(${payouts.amountUsdc}) filter (where ${payouts.status} = 'completed'), 0)`,
       availableBalanceUsdc: sql<string>`coalesce(sum(${payouts.amountUsdc}) filter (where ${payouts.status} = 'completed'), 0)`,
       pendingPayoutsUsdc: sql<string>`coalesce(sum(${payouts.amountUsdc}) filter (where ${payouts.status} = 'pending'), 0)`,
       completedPayoutsCount: sql<string>`count(*) filter (where ${payouts.status} = 'completed')`,

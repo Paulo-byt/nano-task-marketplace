@@ -55,8 +55,9 @@ Each item below includes a short, factual note on what the application *actually
 - *Current implementation note:* every transaction today is on Arc **Testnet**; no mainnet code path exists anywhere in the codebase.
 
 ### 11. The existing post-approval decline limitation
-- Once a creator approves a worker's application, the application's status can never return to "rejected" — confirmed directly in `app/api/tasks/[taskId]/applicants/[applicationId]/reject/route.ts`, whose own guard only allows rejection while status is still `"applied"`. There is no in-app mechanism to decline, reverse, or contest an approval after the fact, short of the creator simply never releasing payout.
-- Is this an acceptable product behavior to ship as-is, or does it need a remediation/dispute path before this could be considered production-ready?
+- *Current implementation note:* this is now resolved at the technical level. An approved application can be revoked back to `'rejected'` via `POST .../revoke-approval` (task-creator-only, a separate endpoint from `/reject` — confirmed in `app/api/tasks/[taskId]/applicants/[applicationId]/revoke-approval/route.ts`), which also moves its payout to a new `'cancelled'` status. This is only possible while the payout has not yet completed: the guard is checked against the database's live row at write time, not an earlier read, so a payout that has genuinely completed on-chain can never be reversed this way — confirmed with `409` returned and no change made in that case. A failed payout can be declined but not retried; retry is deliberately unbuilt (tracked in [TECHNICAL_DEBT.md](./TECHNICAL_DEBT.md)).
+- Is declining a failed payout with no retry option the right default, or should a retry path be prioritized before this is considered complete for a broader audience?
+- Now that a *completed* payout is confirmed genuinely irreversible by design, does that settle the "is there any obligation to offer recourse" question below, or does an already-completed, irreversible transfer still need its own separate dispute/refund answer regardless of how the pre-completion decline works?
 - If a payout has already been released, is there any obligation (legal or otherwise) to offer recourse, given transfers are on-chain and irreversible?
 
 ### 12. Refunds and disputes generally
