@@ -2,7 +2,7 @@
 
 A global micro-task marketplace where anyone with a crypto wallet can post or complete small tasks and get paid instantly in USDC, settled on the Arc blockchain.
 
-> **Status:** Backend migration complete (Phase 5). Wallet-based identity is in place; cryptographic wallet **authentication** is not yet implemented. Not production-ready — see [Project Status](docs/PROJECT_STATUS.md).
+> **Status:** SIWE wallet authentication, the full task/application/payout lifecycle, and AI-assisted task drafting/evaluation/fraud-risk analysis are implemented. Phase 10 added testnet Circle custody, load-testing tooling, and legal-scaffolding placeholders on top of that. Arc **Testnet** only — not production-ready. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for current deployment status; [Project Status](docs/PROJECT_STATUS.md) has the detailed phase-by-phase history.
 
 ---
 
@@ -32,7 +32,7 @@ A global micro-task marketplace where anyone with a crypto wallet can post or co
 
 Nano Task Marketplace lets anyone post a micro-task — paying between $0.01 and $5.00 in USDC — and lets anyone with a wallet complete it and get paid, with no bank account required on either side. Tasks, applications, and payouts are tracked in a real database; a connected wallet address is the only form of identity the app currently asks for.
 
-The longer-term product vision (see [Roadmap](docs/ROADMAP.md)) includes Claude generating tasks, evaluating submissions, and detecting fraud automatically. That AI layer has not been built yet — the project so far has focused on the marketplace, application, and dashboard experience and the database backend underneath it.
+Claude assists with task drafting, submission evaluation, and fraud-risk analysis (`lib/ai/`) — each advisory only, with the task creator always making the final call. See [Roadmap](docs/ROADMAP.md) for how this and the rest of the product came together.
 
 ## Motivation
 
@@ -43,19 +43,20 @@ Traditional micro-task and gig platforms require bank accounts, national ID veri
 **Implemented today:**
 
 - Wallet connection to Arc Testnet (injected wallets such as MetaMask), with network-mismatch detection and a guided switch-network prompt
+- SIWE (Sign-In With Ethereum) authentication — cryptographically verified identity via a signed message and a server-side session, not just a connected address
 - Marketplace browsing with live search and category filtering, backed by a real database
-- Task detail pages and a real application flow, with duplicate-application prevention
-- A wallet-scoped dashboard: My Tasks, Notifications, Earnings, Profile, and Settings, each showing only the connected wallet's own data
+- Task detail pages, on-chain task funding, and a real application flow with duplicate-application prevention
+- The full application lifecycle: approval, rejection, post-approval revocation (a creator can decline an already-approved application before its payout completes; a *completed* payout can never be reversed this way), and completion
+- Real USDC payout execution on Arc Testnet, independently re-verified against the chain's own receipt, with a raw-key signing path and an optional Circle-managed signing path (`PAYOUT_CUSTODY_MODE=circle`)
+- AI-assisted task drafting, submission evaluation, and fraud-risk analysis (Claude API) — each advisory only
+- A wallet-scoped dashboard: My Tasks, Posted Tasks, Notifications, Earnings, Profile, and Settings, each showing only the connected wallet's own data
 - An automatic in-app notification whenever an application is submitted
 - Earnings and profile statistics computed live from the database (no cached or redundant totals)
 
-**Planned, not yet built:**
+**Not yet built:**
 
-- Cryptographic wallet authentication (Sign-In With Ethereum) — see [Decisions](docs/DECISIONS.md) and [Roadmap](docs/ROADMAP.md)
-- Application approval / rejection / completion workflow
-- Real payout execution via Circle
-- AI-driven task generation, submission evaluation, and fraud detection (Claude API)
 - Dashboard Overview is still mock data — it has not yet been migrated to the database
+- Retrying a failed payout — a creator can decline it, but there is no in-app way to resubmit the same payout
 
 ## Technology stack
 
@@ -68,7 +69,7 @@ Traditional micro-task and gig platforms require bank accounts, national ID veri
 | Client data fetching | TanStack React Query |
 | Database | Neon PostgreSQL (serverless) |
 | ORM | Drizzle ORM + drizzle-kit |
-| AI (reserved, not yet integrated) | Anthropic Claude API |
+| AI | Anthropic Claude API — task drafting, submission evaluation, fraud-risk analysis |
 
 See [Architecture](docs/ARCHITECTURE.md) for how these fit together, and [Decisions](docs/DECISIONS.md) for why each was chosen.
 
@@ -85,19 +86,22 @@ my-arc-app/
 ├── app/                      # Next.js App Router routes
 │   ├── page.tsx              # Landing page
 │   ├── marketplace/          # Browse, task details, apply
-│   ├── dashboard/            # My Tasks, Earnings, Profile, Notifications, Settings, Overview
-│   └── api/                  # Route Handlers (applications, notifications, earnings, profile, settings)
+│   ├── dashboard/            # My Tasks, Posted Tasks, Earnings, Profile, Notifications, Settings, Overview
+│   └── api/                  # Route Handlers — auth, tasks, applications, the applicant lifecycle, dashboard, AI
 ├── components/
-│   ├── layout/                # Header, Sidebar, MainLayout, DashboardLayout
+│   ├── layout/                # Header, HeaderNav, Sidebar, MainLayout, Footer
 │   ├── wallet/                 # ConnectWalletButton
 │   ├── marketplace/            # TaskCard, SearchBar, FilterChips, TaskDetails, ApplyConfirmation, ...
 │   └── dashboard/               # Per-section presentational components + client "Container" components
 ├── services/
 │   ├── marketplace/             # Task reads (Drizzle-backed)
-│   ├── applications/             # Application create/read (Drizzle-backed)
-│   ├── users/                     # Wallet-to-user resolution (Drizzle-backed)
-│   ├── dashboard/                  # Notifications, earnings, profile, settings (Drizzle-backed), overview (still mock)
-│   └── payments/, ai/                # Reserved, not yet implemented
+│   ├── applications/             # Application lifecycle (Drizzle-backed)
+│   ├── payouts/                   # Payout records (Drizzle-backed)
+│   ├── submissions/                # Submission + evaluation records (Drizzle-backed)
+│   ├── fraud/                       # Fraud-signal computation (Drizzle-backed)
+│   ├── users/                        # Wallet-to-user resolution (Drizzle-backed)
+│   └── dashboard/                     # Notifications, earnings, profile, settings (Drizzle-backed), overview (still mock)
+├── lib/                                 # arc/ (chain, funding/payout), circle/ (optional payout signing), ai/ (Claude features), auth/, rateLimit.ts
 ├── db/
 │   ├── schema.ts                      # Drizzle schema — the single source of truth for all tables
 │   ├── index.ts                        # Database client singleton
@@ -105,9 +109,8 @@ my-arc-app/
 │   └── seed.ts                           # Recreates the original marketplace fixture data
 ├── hooks/useWallet.ts                     # wagmi wrapper used throughout the app
 ├── providers/                               # AppProviders, QueryProvider, WagmiProvider, CircleProvider
-├── lib/                                       # arc/chains.ts, utils/address.ts, utils/date.ts
-├── types/                                       # Shared TypeScript contracts (task.ts, dashboard.ts, application.ts)
-└── docs/                                          # This documentation set
+├── types/                                     # Shared TypeScript contracts (task.ts, dashboard.ts, application.ts)
+└── docs/                                        # This documentation set
 ```
 
 ## Installation
@@ -150,7 +153,7 @@ Always use Arc **Testnet** during development. No mainnet configuration exists i
    ```bash
    npm run db:migrate
    ```
-   This runs the single migration already checked into `db/migrations/`, creating all six tables (`users`, `tasks`, `applications`, `payouts`, `notifications`, `sessions`).
+   This applies all pending migrations in `db/migrations/` to bring the database schema up to date.
 3. (Optional but recommended for local development) Seed the marketplace with its original fixture tasks:
    ```bash
    npm run db:seed
@@ -187,9 +190,9 @@ Deploying beyond local development (Vercel, environment/secrets strategy, Neon b
 
 ## Current project status
 
-Phase 5 (mock-to-database migration) is complete. Marketplace, Applications, Notifications, Earnings, Profile, and Settings are all backed by Neon Postgres via Drizzle and scoped to the connected wallet's address. Dashboard Overview remains mock data. There is no authentication layer yet — a connected wallet address is trusted as-is, without a signature. The project is functional for demonstration purposes and is **not** production-ready.
+SIWE authentication, the full task/application/payout lifecycle, and the AI-assisted features described above are all implemented, backed by Neon Postgres via Drizzle, and scoped to the authenticated wallet's session. Dashboard Overview remains mock data. The project is testnet-only and **not** production-ready — see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for current deployment status.
 
-Full detail: **[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)**.
+Full phase-by-phase history: **[docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md)** (a snapshot as of end of Phase 6 — see its own status note for what's changed since).
 
 ## Screenshots
 
@@ -197,9 +200,7 @@ _Screenshots are not yet included in this repository. Add them under `docs/scree
 
 ## Roadmap
 
-Phase 6 (next up) introduces Sign-In With Ethereum so that wallet identity becomes cryptographically verified rather than a trusted client claim. Later phases cover the task approval/payout lifecycle, the planned AI integration, and production hardening.
-
-Full detail: **[docs/ROADMAP.md](docs/ROADMAP.md)**.
+Phases 6 through 10 — SIWE authentication, the task/payout lifecycle, AI integration, production hardening, and testnet launch-readiness work (Circle custody, deployment docs, load testing, legal scaffolding) — are complete. See [docs/ROADMAP.md](docs/ROADMAP.md) for the phase-by-phase history and [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for what remains before any real deployment.
 
 ## Contributing
 
@@ -216,4 +217,4 @@ No license has been selected for this project yet. Until a `LICENSE` file is add
 - [Circle Developer documentation](https://developers.circle.com/docs), [Circle AppKit](https://developers.circle.com/w3s/docs), [Circle Wallets](https://developers.circle.com/w3s/docs/programmable-wallets-overview)
 - [Neon](https://neon.tech) — serverless PostgreSQL
 - [Drizzle ORM](https://orm.drizzle.team)
-- [Anthropic](https://www.anthropic.com) — Claude API, reserved for planned AI features
+- [Anthropic](https://www.anthropic.com) — Claude API, powering task drafting, submission evaluation, and fraud-risk analysis
