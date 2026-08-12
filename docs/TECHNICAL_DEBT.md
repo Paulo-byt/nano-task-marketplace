@@ -10,10 +10,6 @@ Cross-references: [ROADMAP.md](./ROADMAP.md) for which future phase each item is
 
 Items that block production readiness or represent an active security gap.
 
-### Database
-
-- **Add secondary indexes on foreign-key columns used in wallet-scoped joins:** `applications.applicant_id`, `payouts.application_id`, `notifications.user_id`. Invisible at current (test-fixture) data volume, since Postgres happily sequential-scans a handful of rows. Deferred because index tuning against realistic data volume wasn't yet possible to validate meaningfully — adding indexes speculatively without a query-plan justification is its own minor debt.
-
 ### Testing
 
 - **No automated test suite exists in this project at all** — no unit tests, no integration tests, no committed end-to-end tests. Every verification performed during Phase 5 (Playwright browser checks, direct database queries) was run from temporary, disposable scripts and deleted after use rather than checked in. This is a real, meaningful gap for a project of this size. Deferred because each phase's own manual-but-rigorous verification loop (build, then browser-drive, then database-check) was judged sufficient to ship each migration correctly, but that discipline does not protect against future regressions the way a committed suite would.
@@ -64,7 +60,7 @@ Items that meaningfully improve correctness, performance, or maintainability, bu
 
 ### Testing
 
-- **Integration tests** for the service layer (the functions that actually call Drizzle) and **API route tests** for the five Route Handlers. Deferred alongside the broader lack of a test suite noted under High Priority — these are the next layer up once a testing framework decision is made.
+- **Integration tests** for the service layer (the functions that actually call Drizzle) and **API route tests** for every Route Handler. Deferred alongside the broader lack of a test suite noted under High Priority — these are the next layer up once a testing framework decision is made.
 - **A committed Playwright end-to-end suite.** Ironically, extensive Playwright verification happened *during* Phase 5 development — including a synthetic EIP-6963 wallet provider built to test multi-wallet isolation — but every script was written to a temporary scratch location and deleted after use, not preserved as a repeatable suite.
 
 ### Documentation
@@ -77,7 +73,7 @@ Items that meaningfully improve correctness, performance, or maintainability, bu
 
 Cosmetic, cleanup, or genuinely optional items — real, but with no functional or security impact.
 
-### Database
+### Database queries
 
 - **Query optimization / review for N+1-adjacent patterns** as new features are added. Nothing currently exhibits this, since every service function issues one well-formed query, but it's worth a periodic look as the codebase grows.
 
@@ -124,3 +120,7 @@ Items that were tracked here as active debt and have since been closed out. Kept
 
 - **Approval / rejection / completion workflow.** `applications.status` previously could only ever become `'applied'` through the app itself; `'approved'`, `'rejected'`, and `'completed'` existed only because they were manually seeded for testing. Originally deferred pending a product decision on who may approve an application. **Resolved (Phase 7):** the task creator — and only the task creator — can now approve or reject an application (`POST .../approve`, `POST .../reject`), each guarded so it only applies to an application still in the `'applied'` state; releasing a payout transitions the application to `'completed'` via `markApplicationCompleted()`.
 - **Post-approval decline** (the limitation flagged in [LEGAL_REVIEW_CHECKLIST.md](./LEGAL_REVIEW_CHECKLIST.md#11-the-existing-post-approval-decline-limitation)). Originally, once an application was approved there was no path back to `'rejected'` — an approval could not be declined after the fact for any reason, including a payout that had failed with no other recourse. **Resolved (Phase 10):** `POST .../revoke-approval` (a separate endpoint from `/reject`, task-creator-only) transitions an approved application back to `'rejected'` and its payout to a new `payout_status` value, `'cancelled'`, but only while that payout has not already completed. The guard is a conditional `UPDATE ... WHERE status IN ('pending', 'failed')` on the payout row, evaluated at write time inside the same transaction as the application-status change — not a separate check-then-write — so this can never win a race against a payout that has already, or concurrently, completed; a `409` is returned and nothing is changed in that case. Retrying a failed payout (as opposed to declining it) remains unbuilt — see Medium Priority below.
+
+### Database
+
+- **Secondary indexes on foreign-key columns used in wallet-scoped joins.** `applications.applicant_id`, `payouts.application_id`, and `notifications.user_id` had no covering index, so every wallet-scoped join relied on Postgres sequentially scanning the whole table — invisible at test-fixture data volume, but a real latency risk once realistic data volume existed. Originally deferred because index tuning against realistic data volume wasn't yet possible to validate meaningfully. **Resolved (Phase 9):** all three now have covering indexes — `applications_applicant_id_idx`, `payouts_application_unique` (a unique index, which also serves this purpose), and `notifications_user_id_idx` — confirmed directly in `db/schema.ts`.

@@ -2,7 +2,7 @@
 
 **Status: planning documentation only.** Nothing in this document has been executed. No Vercel project exists, no production credentials exist, and no production database exists. See [Section 17](#17-production-cutover-gate) before treating anything here as authorization to act.
 
-This guide describes the current repository accurately as of Phase 10 Workstream A (commit `0c22b41` plus the uncommitted Workstream A Circle-custody changes) — it does not describe aspirational infrastructure that hasn't been built.
+This guide describes the current repository accurately, updated through the current Phase 10 documentation/fix work — it does not describe aspirational infrastructure that hasn't been built.
 
 ---
 
@@ -10,7 +10,7 @@ This guide describes the current repository accurately as of Phase 10 Workstream
 
 - **Next.js 16 (App Router)** — both the UI and the API live in one deployable: pages render under `app/`, and server logic lives in `app/api/*/route.ts` Route Handlers. There is no separate backend service.
 - **Hosting target: Vercel.** No alternative has been evaluated or is needed — this is a standard Next.js App Router project with no custom server, matching Vercel's native deployment model exactly. `next.config.ts` currently has no custom configuration (build output, rewrites, headers, etc.) beyond the framework defaults.
-- **Neon (serverless Postgres) + Drizzle ORM.** `db/index.ts` connects via `drizzle-orm/neon-serverless` and `@neondatabase/serverless`'s `Pool`, reading a single `DATABASE_URL`. Five migrations exist today (`0000`–`0004`), all purely additive (no destructive `ALTER`/`DROP` has ever been written).
+- **Neon (serverless Postgres) + Drizzle ORM.** `db/index.ts` connects via `drizzle-orm/neon-serverless` and `@neondatabase/serverless`'s `Pool`, reading a single `DATABASE_URL`. Six migrations exist today (`0000`–`0005`), all purely additive (no destructive `ALTER`/`DROP` has ever been written).
 - **Arc blockchain (EVM-compatible, testnet only today).** `lib/arc/chains.ts` defines a hardcoded `arcTestnet` chain config (chain id `5042002`). All on-chain reads go through `lib/arc/publicClient.ts`; funding verification and payout submission live in `lib/arc/verifyApproval.ts`, `lib/arc/verifyPayout.ts`, and `lib/arc/payoutRelay.ts`.
 - **Circle custody integration (Workstream A, testnet only).** `lib/circle/` adds a second payout-custody path alongside the pre-existing raw-key executor, selected via `PAYOUT_CUSTODY_MODE`. Both paths currently target Arc **Testnet** only — see [Section 7](#7-circle-custody-deployment).
 - **Anthropic (Claude) AI integration.** `lib/ai/` powers assisted task drafting, submission evaluation, and fraud-risk analysis — each advisory-only, gated behind rate limits (`lib/rateLimit.ts`).
