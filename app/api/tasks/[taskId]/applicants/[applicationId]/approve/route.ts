@@ -74,7 +74,7 @@ export async function POST(
   }
 
   try {
-    const result = await approveApplication(applicationId, task.rewardUsdc);
+    const result = await approveApplication(applicationId, taskId, task.rewardUsdc);
     return NextResponse.json(
       { status: "approved", payoutId: result.payoutId },
       { status: 200 }

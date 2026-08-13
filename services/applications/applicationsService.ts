@@ -195,55 +195,107 @@ export interface ApprovalResult {
 }
 
 /**
- * Approves an application and creates its payout row in one atomic
- * transaction -- the first real use of db.transaction in this codebase.
+ * Approves an application, closes its parent task, and creates the payout
+ * row -- all in one atomic transaction, the first real use of db.transaction
+ * in this codebase.
  *
- * The conditional UPDATE (status = 'applied' in the WHERE clause, not a
- * separate check-then-write) is what makes two concurrent approval
- * attempts for the same application safe: only one can ever match a row,
- * so only one payout is ever created. The payouts.application_id unique
- * constraint is a second, independent guard against a duplicate payout row
- * even if that were somehow bypassed. amountUsdc must be the caller's
- * already-verified, database-sourced task reward -- this function has no
- * way to independently confirm it, the same trust boundary as every other
- * service function here (query/write here, authorize and source trusted
- * values at the route).
+ * The task-closing UPDATE (status = 'open' in the WHERE clause) runs FIRST
+ * and is the operation's real safety gate against the race this function
+ * exists to close: two DIFFERENT applications for the SAME task approved
+ * concurrently. Those are two different application rows -- the existing
+ * applications.status = 'applied' guard below, scoped to one specific
+ * applicationId, was never the resource those two requests actually
+ * contend over; the task row is. Gating on it first, before ever touching
+ * the applications row, means Postgres's real row lock on this UPDATE
+ * decides the race for real: whichever request's write reaches this row
+ * first wins, and the loser's own conditional UPDATE -- re-evaluated fresh
+ * against the just-committed value, never an earlier read -- matches zero
+ * rows and this function throws before creating anything. This is the same
+ * "gate on the truly contended resource first" idiom revokeApproval already
+ * established (payout row first, application row second, see below).
  *
- * The EXISTS clause (Fix #11) additionally requires the parent task's live
- * fundingStatus to still be 'funded' at write time, structurally mirroring
- * Fix #9's markPayoutRetrying pattern. approve/route.ts already checks this
- * before ever calling this function, but that is a plain prior read, not
- * part of this write's own atomic condition -- without this clause, a task
- * cancellation racing a concurrent approval could create a brand-new
- * 'pending' payout for an application whose task has just been, or is
- * concurrently being, cancelled. This clause does close that race when the
- * cancellation has already fully committed before this write's own
- * snapshot is taken (verified: an already-cancelled/unfunded/released task
- * always rejects approval).
+ * The conditional UPDATE on applications (status = 'applied') is still what
+ * makes two concurrent approval attempts for the *same* application safe,
+ * exactly as before; the payouts.application_id unique constraint remains a
+ * second, independent guard against a duplicate payout row. The EXISTS
+ * clause (Fix #11) still requires the task's fundingStatus to be 'funded' --
+ * unaffected by the new task-closing step, since that step only ever writes
+ * `status`, never `fundingStatus`.
  *
- * It provides much weaker protection than markPayoutRetrying did for
- * Fix #9 against a *true*, tightly-overlapping concurrent race, and this
- * is measured, not assumed: a 25-iteration Promise.all stress test against
- * this exact pair reproduced the bad state (task cancelled, payout left
- * 'pending') in 24/25 runs (~96%), far above Fix #9's ~4% for
- * cancel-vs-retry. The likely reason is structural, not a weaker guard:
- * markPayoutRetrying is a single UPDATE statement, so its guard passing
- * and the resulting state becoming visible to other transactions happen
- * in the same commit. approveApplication and cancelTask are each
- * multi-statement transactions (UPDATE+INSERT here, UPDATE+UPDATE there),
- * so each side's own check runs and passes long before the other side's
- * change is committed and visible -- leaving a much larger mutual blind
- * spot for the whole duration of both transactions, not just a narrow
- * tail. Deliberately left as-is per Fix #11's explicit scope: closing this
- * further would need row-level locking or SERIALIZABLE isolation, which
- * is a materially larger change outside this fix, the same call already
- * made for Fix #9's own residual.
+ * taskId is a new, explicit parameter (previously derived implicitly via
+ * the EXISTS join) -- sourced from the route's own already-validated
+ * `application.taskId === taskId` check, the same "route validates and
+ * sources trusted values, this function trusts what it's given" boundary
+ * as amountUsdc.
+ *
+ * The explicit `SELECT ... FOR UPDATE` immediately below (before ANY other
+ * read or write) is what finally closes the cancel-vs-approve race against
+ * cancelTask, which takes the identical lock on the identical row as ITS
+ * own first statement. An earlier version of this function relied only on
+ * the task-closing UPDATE above plus the funding-status EXISTS clause
+ * below, reasoning that whichever side's write committed first would make
+ * the other's conditional guard correctly match zero rows. That reasoning
+ * was tested and measurably false: a 25-iteration concurrent race (
+ * scripts/_lifecycle-verify.ts scenario 10d) found 3/25 (~12%) runs ending
+ * in exactly the invalid combination this function exists to prevent --
+ * tasks.funding_status = 'cancelled' AND applications.status = 'approved',
+ * with a 'pending' payout row created. The suspected mechanism: when one
+ * side's UPDATE has to wait for the other's row lock, Postgres re-checks
+ * that UPDATE's own WHERE clause against the fresh row on unblock
+ * (EvalPlanQual), but a subquery inside that WHERE clause reading a
+ * DIFFERENT table -- cancelTask's NOT EXISTS over payouts, in particular --
+ * is not guaranteed to see the other transaction's just-committed rows in
+ * that recheck, only whatever was visible when the blocked statement's own
+ * snapshot was taken. Two independent conditional UPDATEs that only *read*
+ * each other's table, never lock it, is classic Postgres write skew.
+ *
+ * Locking the tasks row explicitly, first, before either side has read or
+ * written anything else, removes that gap: whichever transaction's
+ * SELECT ... FOR UPDATE arrives first holds the lock for its entire
+ * duration, and the other blocks on that SELECT itself rather than deep
+ * inside an UPDATE's WHERE-clause recheck. Once unblocked, every statement
+ * that follows -- including the pre-existing task-closing UPDATE, the
+ * funding-status EXISTS clause below, and cancelTask's own NOT EXISTS
+ * clause -- is a fresh, ordinary statement-level read that correctly sees
+ * everything the other side already committed, because a blocked FOR
+ * UPDATE only returns after the blocking transaction ends. None of those
+ * pre-existing conditions changed at all; the lock is a new statement
+ * prepended in front of them, not a replacement for any of them.
+ *
+ * Re-measured after adding the lock to both functions: 0/25 invalid
+ * combinations (scripts/_lifecycle-verify.ts scenario 10d), and the
+ * approve-vs-approve race above remains 0/25 (scenario 6) -- exactly one
+ * successful approval per task in all 25 iterations, unaffected by the new
+ * lock since it was already winning that race through the same tasks row.
  */
 export async function approveApplication(
   applicationId: string,
+  taskId: string,
   amountUsdc: number
 ): Promise<ApprovalResult> {
   return db.transaction(async (tx) => {
+    const [lockedTask] = await tx
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.id, taskId))
+      .for("update");
+
+    if (!lockedTask) {
+      throw new ApplicationNotApprovableError("Task not found.");
+    }
+
+    const [closedTask] = await tx
+      .update(tasks)
+      .set({ status: "closed" })
+      .where(and(eq(tasks.id, taskId), eq(tasks.status, "open")))
+      .returning({ id: tasks.id });
+
+    if (!closedTask) {
+      throw new ApplicationNotApprovableError(
+        "This task is no longer open -- another applicant may already have been approved."
+      );
+    }
+
     const [updated] = await tx
       .update(applications)
       .set({ status: "approved", approvedAt: new Date() })

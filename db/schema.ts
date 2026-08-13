@@ -116,6 +116,14 @@ export const tasks = pgTable(
     // Phase 9: getPostedTasksByCreator filters on this column with no
     // prior covering index.
     creatorIdIdx: index("tasks_creator_id_idx").on(table.creatorId),
+    // Phase 11 (read-side, never-ending marketplace supply): getTasks()
+    // filters on status + funding_status and paginates via a
+    // (created_at, id) keyset cursor -- this composite index covers the
+    // whole query as one equality-then-range scan, so listing cost depends
+    // on page size, never on total historical task count.
+    marketplaceAvailabilityIdx: index(
+      "tasks_marketplace_availability_idx"
+    ).on(table.status, table.fundingStatus, table.createdAt, table.id),
   })
 );
 

@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { createTask } from "@/services/marketplace/mockTasks";
+import { createTask, getTasks, MARKETPLACE_PAGE_SIZE } from "@/services/marketplace/mockTasks";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
-import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
+import {
+  checkRateLimit,
+  getClientIp,
+  rateLimitResponse,
+  RATE_LIMITS,
+} from "@/lib/rateLimit";
 import type { Task } from "@/types/task";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const ALLOWED_CATEGORIES = [
   "Writing",
@@ -17,6 +24,77 @@ const ALLOWED_DIFFICULTIES = ["Beginner", "Intermediate", "Advanced"] as const;
 
 const MIN_REWARD_USDC = 0.01;
 const MAX_REWARD_USDC = 5.0;
+const MAX_SEARCH_LENGTH = 200;
+
+/**
+ * Marketplace listing/pagination. Deliberately not behind a session
+ * requirement -- browsing is anonymous-friendly today (TaskCard/TaskDetails
+ * have no auth gate), so a missing or invalid session cookie here means
+ * "anonymous viewer," never 401. When a valid session *is* present, the
+ * resolved user id is passed to getTasks() so it can exclude tasks the
+ * viewer already has an application against.
+ */
+export async function GET(request: Request) {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const sessionUser = sessionId ? await getSessionUser(sessionId) : undefined;
+
+  const rateLimitResult = checkRateLimit(
+    sessionUser ? `read:${sessionUser.id}` : `read:ip:${getClientIp(request)}`,
+    RATE_LIMITS.authenticatedRead
+  );
+  if (rateLimitResult.limited) {
+    return rateLimitResponse(rateLimitResult);
+  }
+
+  const url = new URL(request.url);
+  const cursorCreatedAt = url.searchParams.get("cursorCreatedAt");
+  const cursorId = url.searchParams.get("cursorId");
+  const categoryParam = url.searchParams.get("category");
+  const searchParam = url.searchParams.get("search");
+
+  if (Boolean(cursorCreatedAt) !== Boolean(cursorId)) {
+    return NextResponse.json(
+      { error: "cursorCreatedAt and cursorId must both be provided together." },
+      { status: 400 }
+    );
+  }
+
+  let cursor: { createdAt: string; id: string } | undefined;
+  if (cursorCreatedAt && cursorId) {
+    const parsedDate = new Date(cursorCreatedAt);
+    if (Number.isNaN(parsedDate.getTime()) || !UUID_RE.test(cursorId)) {
+      return NextResponse.json({ error: "Invalid cursor." }, { status: 400 });
+    }
+    cursor = { createdAt: parsedDate.toISOString(), id: cursorId };
+  }
+
+  let category: Task["category"] | undefined;
+  if (categoryParam) {
+    if (!(ALLOWED_CATEGORIES as readonly string[]).includes(categoryParam)) {
+      return NextResponse.json(
+        { error: `category must be one of: ${ALLOWED_CATEGORIES.join(", ")}.` },
+        { status: 400 }
+      );
+    }
+    category = categoryParam as Task["category"];
+  }
+
+  const search = searchParam?.trim().slice(0, MAX_SEARCH_LENGTH) || undefined;
+
+  // pageSize is never accepted from the client -- a fixed, server-controlled
+  // page size is what keeps this a real per-request bound rather than a
+  // number a caller could inflate to fetch everything in one request.
+  const page = await getTasks({
+    viewerId: sessionUser?.id,
+    cursor,
+    pageSize: MARKETPLACE_PAGE_SIZE,
+    category,
+    search,
+  });
+
+  return NextResponse.json(page);
+}
 
 function extractString(body: unknown, key: string): string | undefined {
   if (typeof body !== "object" || body === null || !(key in body)) {

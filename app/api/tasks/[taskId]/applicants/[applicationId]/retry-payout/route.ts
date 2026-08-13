@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { parseUnits, type Address } from "viem";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
-import { getTaskForFunding } from "@/services/marketplace/mockTasks";
+import { getTaskForFunding, markTaskReleased } from "@/services/marketplace/mockTasks";
 import {
   getApplicationForApproval,
   markApplicationCompleted,
@@ -180,6 +180,16 @@ export async function POST(
         });
       }
 
+      const taskReleased = await markTaskReleased(taskId);
+      if (!taskReleased) {
+        log.error("retry_reconciled_but_task_not_marked_released", {
+          payoutId: payout.payoutId,
+          applicationId,
+          taskId,
+          txHash: payout.txHash,
+        });
+      }
+
       return NextResponse.json(
         { status: "completed", txHash: payout.txHash },
         { status: 200 }
@@ -301,6 +311,16 @@ export async function POST(
     log.error("retry_payout_completed_but_application_not_marked_completed", {
       payoutId: payout.payoutId,
       applicationId,
+      txHash,
+    });
+  }
+
+  const taskReleased = await markTaskReleased(taskId);
+  if (!taskReleased) {
+    log.error("retry_payout_completed_but_task_not_marked_released", {
+      payoutId: payout.payoutId,
+      applicationId,
+      taskId,
       txHash,
     });
   }

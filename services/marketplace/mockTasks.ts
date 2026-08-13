@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import { applications, payouts, tasks, users } from "@/db/schema";
 import type { Task } from "@/types/task";
@@ -16,6 +16,7 @@ const TASK_SELECTION = {
   estimatedTime: tasks.estimatedTime,
   creatorDisplayName: users.displayName,
   creatorWalletAddress: users.walletAddress,
+  status: tasks.status,
   fundingStatus: tasks.fundingStatus,
   fundingTxHash: tasks.fundingTxHash,
   fundedAmountUsdc: tasks.fundedAmountUsdc,
@@ -31,6 +32,7 @@ type TaskRow = {
   estimatedTime: string;
   creatorDisplayName: string | null;
   creatorWalletAddress: string;
+  status: Task["status"];
   fundingStatus: Task["fundingStatus"];
   fundingTxHash: string | null;
   fundedAmountUsdc: string | null;
@@ -47,6 +49,7 @@ function toTask(row: TaskRow): Task {
     estimatedTime: row.estimatedTime,
     creator: row.creatorDisplayName ?? row.creatorWalletAddress,
     creatorWalletAddress: row.creatorWalletAddress,
+    status: row.status,
     fundingStatus: row.fundingStatus,
     fundingTxHash: row.fundingTxHash,
     fundedAmountUsdc:
@@ -54,14 +57,115 @@ function toTask(row: TaskRow): Task {
   };
 }
 
-export async function getTasks(): Promise<Task[]> {
+export interface TaskCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface GetTasksOptions {
+  // The signed-in viewer's user id, if any -- omitted entirely for an
+  // anonymous browser, in which case no applicant-exclusion is applied.
+  viewerId?: string;
+  // Absent on the first page; present on every subsequent page, taken
+  // verbatim from the previous page's own nextCursor.
+  cursor?: TaskCursor;
+  pageSize: number;
+  category?: Task["category"];
+  search?: string;
+}
+
+export interface TaskPage {
+  tasks: Task[];
+  nextCursor: TaskCursor | null;
+}
+
+export const MARKETPLACE_PAGE_SIZE = 20;
+
+/**
+ * The single definition of "available for work" in this codebase (Phase 11,
+ * read-side): status = 'open' AND funding_status = 'funded', excluding any
+ * task the viewer already has an application against -- any status at all,
+ * not just 'applied', since applications_task_applicant_unique means a
+ * rejected applicant can never re-apply either, so re-showing the task to
+ * them would be a dead end regardless. Anonymous callers (no viewerId) skip
+ * that exclusion entirely rather than being shown nothing.
+ *
+ * Cursor/keyset pagination on (created_at, id) -- deliberately not OFFSET,
+ * which degrades under exactly the condition this is designed for
+ * (continuous inserts: a new task landing mid-scroll would shift every
+ * subsequent offset, skipping or duplicating rows for the viewer). The id
+ * tiebreaker matters because two tasks can share a created_at timestamp.
+ * pageSize bounds one response only -- it is never a total-task cap, and
+ * this function has no code path that limits how many tasks may exist or
+ * ever become available. Fetches pageSize + 1 rows to learn whether another
+ * page exists without a separate COUNT(*), which would itself become an
+ * unbounded-cost query as the table grows.
+ *
+ * Does not touch tasks.status or tasks.funding_status as a write -- this is
+ * the read-side half of the Phase 11 marketplace design. Closing a task on
+ * approval and marking funding "released" on payout completion are a
+ * separate, not-yet-implemented write-side phase (see the architecture
+ * review); until that ships, "status = 'open'" is true for every task
+ * (nothing currently sets it to 'closed'), so this filter is a no-op today
+ * and becomes load-bearing the moment that phase lands -- deliberately, not
+ * a bug.
+ */
+export async function getTasks(options: GetTasksOptions): Promise<TaskPage> {
+  const { viewerId, cursor, pageSize, category, search } = options;
+
+  const conditions: SQL[] = [
+    eq(tasks.status, "open"),
+    eq(tasks.fundingStatus, "funded"),
+  ];
+
+  if (viewerId) {
+    conditions.push(sql`NOT EXISTS (
+      SELECT 1 FROM ${applications}
+      WHERE ${applications.taskId} = ${tasks.id}
+        AND ${applications.applicantId} = ${viewerId}
+    )`);
+  }
+
+  if (category) {
+    conditions.push(eq(tasks.category, category));
+  }
+
+  if (search) {
+    const pattern = `%${search}%`;
+    conditions.push(
+      or(ilike(tasks.title, pattern), ilike(tasks.description, pattern))!
+    );
+  }
+
+  if (cursor) {
+    const cursorCreatedAt = new Date(cursor.createdAt);
+    conditions.push(
+      or(
+        lt(tasks.createdAt, cursorCreatedAt),
+        and(eq(tasks.createdAt, cursorCreatedAt), lt(tasks.id, cursor.id))
+      )!
+    );
+  }
+
   const rows = await db
-    .select(TASK_SELECTION)
+    .select({ ...TASK_SELECTION, createdAt: tasks.createdAt })
     .from(tasks)
     .innerJoin(users, eq(tasks.creatorId, users.id))
-    .orderBy(tasks.createdAt);
+    .where(and(...conditions))
+    .orderBy(desc(tasks.createdAt), desc(tasks.id))
+    .limit(pageSize + 1);
 
-  return rows.map(toTask);
+  const hasMore = rows.length > pageSize;
+  const page = rows.slice(0, pageSize);
+  const lastRow = page[page.length - 1];
+
+  return {
+    tasks: page.map(toTask),
+    nextCursor:
+      hasMore && lastRow
+        ? { createdAt: lastRow.createdAt.toISOString(), id: lastRow.id }
+        : null,
+  };
 }
 
 export async function getTaskById(id: string): Promise<Task | undefined> {
@@ -213,6 +317,41 @@ export async function markTaskFunded(
 }
 
 /**
+ * Write-side never-ending-supply lifecycle (Phase 11 continued): marks a
+ * task's funding released once its one approved application's payout has
+ * genuinely completed. Called only after markPayoutCompleted has already
+ * won its own atomic race -- the same "bookkeeping on an already-successful
+ * fact" position as markApplicationCompleted, called alongside it from the
+ * payout/retry-payout routes, never from anywhere payment-uncertain.
+ * Guarded on funding_status = 'funded' (not a separate check-then-write),
+ * purely as defense-in-depth: nothing else in this codebase ever moves a
+ * task's funding status other than markTaskFunded, cancelTask, and this
+ * call, and none of their guards overlap.
+ *
+ * This also narrows (though does not fully close) a pre-existing gap: with
+ * fundingStatus staying 'funded' forever after completion (as it did before
+ * this function existed), cancelTask's own guard -- funding_status IN
+ * ('unfunded','funded') AND NOT EXISTS a pending/retrying payout -- would
+ * stay satisfiable indefinitely once a payout finished (status 'completed'
+ * is neither 'pending' nor 'retrying'), so a task could be cancelled after
+ * its worker was already paid, at any time, not just in a brief window.
+ * Calling this immediately after markPayoutCompleted succeeds shrinks that
+ * window down to the ordinary read-committed timing gap already accepted
+ * elsewhere in this codebase (Fix #9/#11's own documented residuals), not a
+ * new class of risk -- see the write-side design report for the full
+ * account of why cancelTask itself needs no code change here.
+ */
+export async function markTaskReleased(taskId: string): Promise<boolean> {
+  const rows = await db
+    .update(tasks)
+    .set({ fundingStatus: "released" })
+    .where(and(eq(tasks.id, taskId), eq(tasks.fundingStatus, "funded")))
+    .returning({ id: tasks.id });
+
+  return rows.length > 0;
+}
+
+/**
  * Atomically cancels a task and rejects its still-"applied" applications in
  * one transaction (Step 9). The NOT EXISTS clause is what actually makes
  * this race-safe against an active payout -- not the route's earlier
@@ -250,18 +389,52 @@ export async function markTaskFunded(
  * so an application concurrently approved in the same window is correctly
  * left untouched rather than incorrectly rejected out from under an
  * approval that already won. approveApplication (applicationsService.ts)
- * now symmetrically requires this task's live fundingStatus to still be
+ * symmetrically requires this task's live fundingStatus to still be
  * 'funded' before it can approve at all (Fix #11, the same EXISTS-clause
- * shape as markPayoutRetrying above) -- but unlike the cancel-vs-retry
- * race, this narrows the cancel-vs-approve race only weakly: both this
- * function and approveApplication are multi-statement transactions, so a
- * true concurrent race between them was measured (Fix #11) to still
- * produce the bad state (this task cancelled, a payout left 'pending')
- * roughly 96% of the time, far above cancel-vs-retry's ~4%. See
- * approveApplication's own doc comment for the full detail and why.
+ * shape as markPayoutRetrying above).
+ *
+ * The cancel-vs-approve race against approveApplication went through three
+ * stages worth recording. Fix #11 originally measured this race's
+ * violation rate at ~96% (task cancelled, payout left 'pending').
+ * approveApplication's write-side rewrite (Phase 11 continued) added a
+ * task-closing UPDATE gated on status = 'open' as its first statement,
+ * which sharply narrowed the race to 3/25 (~12%) under a 25-iteration
+ * concurrent test -- better, but still a real, reproducible violation of
+ * "cancelled AND approved must never both be true," caused by classic
+ * Postgres write skew: this function's NOT EXISTS read of the payouts
+ * table and approveApplication's funding-status EXISTS read of this task
+ * row can each pass by reading around the other's not-yet-committed (or
+ * just-committed-but-not-yet-visible-to-a-blocked-recheck) write, even
+ * though neither one is stale by the time its own transaction commits.
+ *
+ * The explicit `SELECT ... FOR UPDATE` on this task's own row, now the
+ * very first statement in this function's transaction, closes that gap.
+ * approveApplication takes the identical lock on the identical row as
+ * *its* first statement, so the two transactions now genuinely serialize
+ * on this one row for their entire duration: whichever arrives first
+ * holds the lock until it commits or rolls back, and the other blocks on
+ * that SELECT itself rather than deep inside an UPDATE's WHERE-clause
+ * recheck -- so every statement that runs after it unblocks, including
+ * the NOT EXISTS clause below and approveApplication's own EXISTS clause,
+ * sees a fully current, post-commit view. Nothing about the NOT EXISTS
+ * clause itself changed; the lock was prepended in front of it, not a
+ * replacement for it. Re-measured after adding the lock to both
+ * functions: 0/25 invalid combinations (scripts/_lifecycle-verify.ts
+ * scenario 10d). See approveApplication's own doc comment for the full
+ * mechanism.
  */
 export async function cancelTask(taskId: string): Promise<boolean> {
   return db.transaction(async (tx) => {
+    const [lockedTask] = await tx
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.id, taskId))
+      .for("update");
+
+    if (!lockedTask) {
+      return false;
+    }
+
     const [updated] = await tx
       .update(tasks)
       .set({ fundingStatus: "cancelled" })

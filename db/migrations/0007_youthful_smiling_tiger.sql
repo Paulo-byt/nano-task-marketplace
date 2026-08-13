@@ -1,0 +1,1 @@
+CREATE INDEX "tasks_marketplace_availability_idx" ON "tasks" USING btree ("status","funding_status","created_at","id");

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { parseUnits, type Address } from "viem";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
-import { getTaskForFunding } from "@/services/marketplace/mockTasks";
+import { getTaskForFunding, markTaskReleased } from "@/services/marketplace/mockTasks";
 import {
   getApplicationForApproval,
   markApplicationCompleted,
@@ -222,6 +222,19 @@ export async function POST(
     log.error("payout_completed_but_application_not_marked_completed", {
       payoutId: payout.payoutId,
       applicationId,
+      txHash,
+    });
+  }
+
+  // Same "bookkeeping on an already-successful fact" position as
+  // markApplicationCompleted immediately above -- never allowed to turn an
+  // already-successful, independently-verified payout into an HTTP failure.
+  const taskReleased = await markTaskReleased(taskId);
+  if (!taskReleased) {
+    log.error("payout_completed_but_task_not_marked_released", {
+      payoutId: payout.payoutId,
+      applicationId,
+      taskId,
       txHash,
     });
   }

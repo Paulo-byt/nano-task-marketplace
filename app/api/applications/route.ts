@@ -83,11 +83,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Task not found." }, { status: 404 });
   }
 
-  // task.fundingStatus comes from the database row fetched above, never
-  // from this request body -- a client cannot claim a task is funded.
+  // task.fundingStatus/status both come from the database row fetched
+  // above, never from this request body -- a client cannot claim a task is
+  // funded or open. This is a friendly pre-check, not the real safety
+  // guarantee for the race against a concurrent approval closing the task:
+  // the outcome that check protects against (a dangling application for an
+  // already-closed task) can never be approved later regardless, since
+  // approveApplication's own atomic task-closing guard would reject it --
+  // matching this codebase's established "friendly pre-check, atomic guard
+  // is what actually matters" split, proportionate to the fact that this
+  // race's worst case has no financial consequence, unlike approval's own.
   if (task.fundingStatus !== "funded") {
     return NextResponse.json(
       { status: "not_funded", error: "Task is not funded yet." },
+      { status: 409 }
+    );
+  }
+
+  if (task.status !== "open") {
+    return NextResponse.json(
+      { status: "not_open", error: "This task is no longer accepting applications." },
       { status: 409 }
     );
   }

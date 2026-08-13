@@ -8,6 +8,7 @@ export interface Task {
   estimatedTime: string;
   creator: string;
   creatorWalletAddress: string;
+  status: "open" | "closed";
   fundingStatus: "unfunded" | "funded" | "released" | "cancelled";
   fundingTxHash: string | null;
   fundedAmountUsdc: number | null;
