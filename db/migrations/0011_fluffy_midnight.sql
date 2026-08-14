@@ -1,0 +1,1 @@
+ALTER TYPE "public"."payload_source_kind" ADD VALUE 'ai_generated';

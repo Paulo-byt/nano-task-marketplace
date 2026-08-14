@@ -1,7 +1,14 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, isNull, sql } from "drizzle-orm";
 import { parseUnits, type Address } from "viem";
 import { db } from "@/db";
-import { taskTemplates, taskTemplateGenerationEvents, tasks, users } from "@/db/schema";
+import {
+  payloadItems,
+  payloadSources,
+  taskTemplates,
+  taskTemplateGenerationEvents,
+  tasks,
+  users,
+} from "@/db/schema";
 import { getOrCreateUserByWallet } from "@/services/users/walletUser";
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
@@ -495,7 +502,11 @@ export async function getTaskTemplateId(taskId: string): Promise<string | null> 
   return row?.templateId ?? null;
 }
 
-export type GenerationOutcome = "created" | "duplicate" | "insufficient_capacity";
+export type GenerationOutcome =
+  | "created"
+  | "duplicate"
+  | "insufficient_capacity"
+  | "payload_exhausted";
 
 export interface GenerationAttemptResult {
   outcome: GenerationOutcome;
@@ -504,12 +515,13 @@ export interface GenerationAttemptResult {
 
 /**
  * One atomic attempt to generate a single instance from a template, keyed
- * by triggerKey. Returns a result rather than throwing for its three
- * ordinary outcomes -- unlike fundTemplatePool's error classes (which
- * signal genuinely exceptional, human-actionable failures), "duplicate
- * trigger" and "insufficient capacity right now" are routine, expected
- * outcomes of an automated, best-effort process; forcing callers to
- * try/catch normal control flow would be the wrong shape here.
+ * by triggerKey. Returns a result rather than throwing for its ordinary
+ * outcomes -- unlike fundTemplatePool's error classes (which signal
+ * genuinely exceptional, human-actionable failures), "duplicate trigger",
+ * "insufficient capacity right now", and "no payload item available right
+ * now" are routine, expected outcomes of an automated, best-effort
+ * process; forcing callers to try/catch normal control flow would be the
+ * wrong shape here.
  *
  * The exact sequence, one transaction, in this order and no other:
  *
@@ -531,7 +543,8 @@ export interface GenerationAttemptResult {
  *      twice, this session). No SELECT...FOR UPDATE: this isn't the
  *      cross-table blind-read shape that required one for cancel-vs-
  *      approve. RETURNING the whole row means the fields needed to clone
- *      the instance are already in hand -- no separate read.
+ *      the instance (including payloadMode) are already in hand -- no
+ *      separate read.
  *
  *      If this matches no row (paused/archived template, or genuinely
  *      insufficient headroom), the transaction still COMMITS -- with
@@ -540,7 +553,39 @@ export interface GenerationAttemptResult {
  *      intended shape for "attempted, no capacity" (see
  *      task_template_generation_events's own doc comment).
  *
- *   3. INSERT the new tasks row using step 2's RETURNING data verbatim:
+ *   3. Payload gate (Phase 11C, Step 3) -- payload_sourced templates only.
+ *      self_contained templates (every template before this phase, and
+ *      every one created without an explicit payload_mode) skip this
+ *      step entirely: no query against payload_items or payload_sources
+ *      is ever issued for them, and their behavior is byte-for-byte
+ *      identical to before this step.
+ *
+ *      For a payload_sourced template: SELECT one candidate row from
+ *      payload_items (status='available', matching template_id, parent
+ *      payload_sources.status='active' via EXISTS, oldest first) using
+ *      FOR UPDATE SKIP LOCKED -- this is what lets N concurrent attempts
+ *      each grab a DIFFERENT available item instead of blocking on each
+ *      other, while still making it impossible for two attempts to walk
+ *      away with the same row. The subsequent UPDATE re-checks both
+ *      status='available' and the source's status='active' again,
+ *      defensively -- SKIP LOCKED already prevents two attempts from
+ *      racing on the SAME row, but it does NOT prevent the item's parent
+ *      source from being paused in the narrow window between this
+ *      transaction's SELECT and its UPDATE; the re-check is what makes
+ *      that narrow race fail closed (claim rejected) rather than
+ *      silently assigning from a now-paused source.
+ *
+ *      No candidate found, or the defensive UPDATE matches no row: this
+ *      attempt has no payload item to give this task. Step 2's own
+ *      pool reservation from step 2 above is released with a
+ *      compensating decrement (same transaction, same row, so it nets
+ *      back to the pre-attempt value with nothing else committed), and
+ *      this function returns payload_exhausted. The event row from step
+ *      1 still commits with generatedTaskId=null -- the same "attempted,
+ *      no capacity" shape step 2's own insufficient_capacity case already
+ *      established, just for a different resource.
+ *
+ *   4. INSERT the new tasks row using step 2's RETURNING data verbatim:
  *      status='open', fundingStatus='funded' (set directly -- the pool
  *      was already independently verified when funded, there is no
  *      per-instance approval to wait for), fundingTxHash=null (NEVER the
@@ -549,9 +594,15 @@ export interface GenerationAttemptResult {
  *      generated from the same pool), fundedAmountUsdc=the reward
  *      (informational, matches what a manually-funded task shows;
  *      nothing reads it for correctness -- payout uses tasks.rewardUsdc),
- *      templateId=the template's id.
+ *      templateId=the template's id. For a payload_sourced template only,
+ *      payloadItemId is set to the row claimed in step 3, and the claimed
+ *      item's content is appended to the cloned description -- there is
+ *      no richer templating/placeholder mechanism in this schema yet, so
+ *      this is deliberately the simplest legible embedding, not a guess
+ *      at one. self_contained templates never set payloadItemId (stays
+ *      null, the schema default) and never touch payload item content.
  *
- *   4. UPDATE the step-1 event row's generatedTaskId to the new task's id.
+ *   5. UPDATE the step-1 event row's generatedTaskId to the new task's id.
  */
 export async function generateTaskInstance(
   templateId: string,
@@ -591,11 +642,80 @@ export async function generateTaskInstance(
       return { outcome: "insufficient_capacity", taskId: null };
     }
 
+    // Approved EXISTS pattern for the parent source's status, reused
+    // identically for both the candidate SELECT and the defensive claim
+    // UPDATE below -- a closure over `tx` so both call sites share
+    // exactly one definition rather than two copies that could drift.
+    const activeSourceExists = () =>
+      exists(
+        tx
+          .select({ one: sql`1` })
+          .from(payloadSources)
+          .where(
+            and(
+              eq(payloadSources.id, payloadItems.sourceId),
+              eq(payloadSources.status, "active")
+            )
+          )
+      );
+
+    let claimedItem: typeof payloadItems.$inferSelect | undefined;
+
+    if (reserved.payloadMode === "payload_sourced") {
+      const [candidate] = await tx
+        .select({ id: payloadItems.id })
+        .from(payloadItems)
+        .where(
+          and(
+            eq(payloadItems.templateId, templateId),
+            eq(payloadItems.status, "available"),
+            activeSourceExists()
+          )
+        )
+        .orderBy(asc(payloadItems.createdAt))
+        .limit(1)
+        .for("update", { skipLocked: true });
+
+      const [claimed] = candidate
+        ? await tx
+            .update(payloadItems)
+            .set({ status: "assigned", updatedAt: new Date() })
+            .where(
+              and(
+                eq(payloadItems.id, candidate.id),
+                eq(payloadItems.status, "available"),
+                activeSourceExists()
+              )
+            )
+            .returning()
+        : [];
+
+      if (!claimed) {
+        // Release step 2's reservation -- same transaction, same row, no
+        // WHERE guard needed: the prior conditional UPDATE above already
+        // holds this row's lock for the rest of this transaction, so
+        // nothing else can have touched it since.
+        await tx
+          .update(taskTemplates)
+          .set({
+            poolAllocatedUsdc: sql`${taskTemplates.poolAllocatedUsdc} - ${taskTemplates.rewardUsdc}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(taskTemplates.id, templateId));
+
+        return { outcome: "payload_exhausted", taskId: null };
+      }
+
+      claimedItem = claimed;
+    }
+
     const [task] = await tx
       .insert(tasks)
       .values({
         title: reserved.title,
-        description: reserved.description,
+        description: claimedItem
+          ? `${reserved.description}\n\n---\nPayload:\n${claimedItem.content}`
+          : reserved.description,
         rewardUsdc: reserved.rewardUsdc,
         category: reserved.category,
         difficulty: reserved.difficulty,
@@ -606,6 +726,7 @@ export async function generateTaskInstance(
         fundedAmountUsdc: reserved.rewardUsdc,
         fundedAt: new Date(),
         templateId: reserved.id,
+        payloadItemId: claimedItem?.id ?? null,
       })
       .returning({ id: tasks.id });
 
@@ -633,12 +754,13 @@ export interface ReplenishmentResult {
  * gets its own trigger key (`${triggerTaskId}:${slot}`), independently
  * idempotent per the sequence in generateTaskInstance's own doc comment.
  *
- * Stops early only on "insufficient_capacity" -- a real signal that the
- * pool cannot cover another instance right now, so trying further slots
- * in the same call would be pointless. A "duplicate" result for one slot
- * does NOT stop the loop: it means that specific slot was already
- * handled (by a concurrent or earlier call), not that the pool is short,
- * so later slots are still worth attempting.
+ * Stops early only on "insufficient_capacity" or "payload_exhausted" -- a
+ * real signal that the pool, or (Phase 11C, Step 3) the template's
+ * payload supply, cannot cover another instance right now, so trying
+ * further slots in the same call would be pointless. A "duplicate" result
+ * for one slot does NOT stop the loop: it means that specific slot was
+ * already handled (by a concurrent or earlier call), not that either
+ * resource is short, so later slots are still worth attempting.
  *
  * Known, deliberately accepted v1 residual: two different tasks from the
  * SAME template closing in the same narrow window can each independently
@@ -677,7 +799,10 @@ export async function replenishTemplateIfNeeded(
     const result = await generateTaskInstance(templateId, `${triggerTaskId}:${slot}`);
     if (result.outcome === "created") {
       created++;
-    } else if (result.outcome === "insufficient_capacity") {
+    } else if (
+      result.outcome === "insufficient_capacity" ||
+      result.outcome === "payload_exhausted"
+    ) {
       stoppedEarly = true;
       break;
     }

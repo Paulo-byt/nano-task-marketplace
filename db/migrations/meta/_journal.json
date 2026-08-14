@@ -71,6 +71,20 @@
       "when": 1786662327477,
       "tag": "0009_oval_venom",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786704271159,
+      "tag": "0010_light_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786734492654,
+      "tag": "0011_fluffy_midnight",
+      "breakpoints": true
     }
   ]
 }

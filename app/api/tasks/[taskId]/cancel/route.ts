@@ -7,6 +7,7 @@ import {
   getTaskTemplateId,
   replenishTemplateIfNeeded,
 } from "@/services/marketplace/taskTemplatesService";
+import { releasePayloadItemForCancelledTask } from "@/services/marketplace/payloadSourcesService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -76,6 +77,23 @@ export async function POST(
       },
       { status: 409 }
     );
+  }
+
+  // Best-effort payload release, appended after cancellation's own success
+  // -- never allowed to turn a successful cancellation into an error
+  // response, same posture as the replenishment check below. A no-op for
+  // every task that isn't payload_sourced. Deliberately runs BEFORE the
+  // replenishment check: releasing the item here (when no submission was
+  // ever recorded against it) is what makes it eligible for that very
+  // same replenishment attempt's own payload gate, instead of needlessly
+  // reporting payload_exhausted for one more cycle (Phase 11C, Step 4).
+  try {
+    await releasePayloadItemForCancelledTask(taskId);
+  } catch (err) {
+    log.error("cancel_payload_release_failed", {
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // Best-effort supply replenishment, appended after cancellation's own

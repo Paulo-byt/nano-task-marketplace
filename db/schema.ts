@@ -77,6 +77,44 @@ export const taskTemplateStatusEnum = pgEnum("task_template_status", [
   "archived",
 ]);
 
+// Phase 11C (payload-based tasks): whether a template clones itself
+// verbatim per instance (existing behavior) or needs a claimed
+// payload_items row per instance. Defaulted to self_contained everywhere
+// below so every existing template is completely unaffected.
+export const templatePayloadModeEnum = pgEnum("template_payload_mode", [
+  "self_contained",
+  "payload_sourced",
+]);
+
+// Phase 11C: how a payload source's items got there. Grown additively, as
+// documented from the start (csv_import, api_feed were the anticipated
+// future values; ai_generated is the first of those to actually land, for
+// AI-Assisted Supply) -- never blindly expanded ahead of need. 'manual'
+// remains the default for every source created without an explicit kind,
+// so nothing about Steps 1-4's existing behavior changes.
+export const payloadSourceKindEnum = pgEnum("payload_source_kind", [
+  "manual",
+  "ai_generated",
+]);
+
+// Phase 11C: mirrors task_template_status's own minimalism, minus
+// "archived" -- nothing yet needs a third state here. Pausing a source
+// stops NEW claims from drawing on it; it never touches any item's own
+// status (see payload_item_status below).
+export const payloadSourceStatusEnum = pgEnum("payload_source_status", [
+  "active",
+  "paused",
+]);
+
+// Phase 11C: exactly two states, deliberately -- everything about "what
+// happened to the task" is already tracked by tasks/applications/payouts/
+// submissions and reachable via tasks.payloadItemId. Duplicating that
+// here would drift out of sync with the real state machine for nothing.
+export const payloadItemStatusEnum = pgEnum("payload_item_status", [
+  "available",
+  "assigned",
+]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   walletAddress: text("wallet_address").notNull().unique(),
@@ -119,6 +157,13 @@ export const tasks = pgTable(
     // pool (Phase 12's later, not-yet-built generation step); no other
     // write path ever touches this column yet.
     templateId: uuid("template_id").references(() => taskTemplates.id),
+    // Phase 11C (payload-based tasks): nullable -- set only for an
+    // instance generated from a payload_sourced template, whose gate 3
+    // claimed this specific row at generation time. Write-once: this is
+    // the permanent record of which item the task was CREATED with, never
+    // revisited afterward, including on cancellation (payload_items.status
+    // is what tracks current claim state; this column tracks history).
+    payloadItemId: uuid("payload_item_id").references(() => payloadItems.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -141,6 +186,13 @@ export const tasks = pgTable(
     // Phase 12: dashboard drill-down ("instances for this template") and
     // the future generation path's own lookups will filter on this column.
     templateIdIdx: index("tasks_template_id_idx").on(table.templateId),
+    // Phase 11C: symmetric with templateIdIdx above -- supports the rare,
+    // non-hot-path "which task(s) has this item ever been attached to"
+    // reverse lookup; the hot reservation path itself never queries tasks
+    // at all, it only ever touches payload_items directly.
+    payloadItemIdIdx: index("tasks_payload_item_id_idx").on(
+      table.payloadItemId
+    ),
     // Phase 12: closes the residual isFundingTxHashUsed's own doc comment
     // already named -- that check was previously an application-level
     // SELECT-before-UPDATE race, not a database guarantee. NULL is exempt
@@ -194,6 +246,14 @@ export const taskTemplates = pgTable(
       .notNull()
       .default("0"),
     poolFundingTxHash: text("pool_funding_tx_hash"),
+    // Phase 11C (payload-based tasks): governs whether generation clones
+    // this template verbatim (self_contained, the existing behavior) or
+    // must claim a payload_items row per instance (payload_sourced).
+    // Defaulted so every template created before this phase is completely
+    // unaffected.
+    payloadMode: templatePayloadModeEnum("payload_mode")
+      .notNull()
+      .default("self_contained"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -254,6 +314,90 @@ export const taskTemplateGenerationEvents = pgTable(
     templateTriggerUnique: uniqueIndex(
       "task_template_generation_events_template_trigger_unique"
     ).on(table.templateId, table.triggerKey),
+  })
+);
+
+/**
+ * A named batch of input material attached to one template (Phase 11C,
+ * payload-based tasks) -- operator bookkeeping and provenance, not a queue
+ * itself. status is deliberately just active/paused: pausing stops NEW
+ * claims from drawing on this source's items without touching any of
+ * them, exactly mirroring task_templates.status's own "paused" semantics.
+ * "Exhausted" is deliberately not a stored status -- it's a derived fact
+ * (zero remaining available items) computed by querying payload_items
+ * directly, never a column that could drift out of sync with the real
+ * count.
+ */
+export const payloadSources = pgTable(
+  "payload_sources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => taskTemplates.id),
+    kind: payloadSourceKindEnum("kind").notNull().default("manual"),
+    label: text("label"),
+    status: payloadSourceStatusEnum("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    templateIdIdx: index("payload_sources_template_id_idx").on(
+      table.templateId
+    ),
+  })
+);
+
+/**
+ * One individual, atomically-claimable unit of input (Phase 11C,
+ * payload-based tasks) -- a sentence, a URL, interpretation defined
+ * entirely by its template's own instructions, never by this schema.
+ * Exactly two states (payload_item_status) on purpose: everything about
+ * "what happened to the task this item was claimed for" is already
+ * tracked by tasks/applications/payouts/submissions and reachable via
+ * tasks.payload_item_id -- duplicating that here would drift out of sync
+ * with the real state machine for nothing.
+ *
+ * templateId is denormalized from payload_sources rather than reached
+ * only via sourceId -- the reservation query (generation's gate 3, not
+ * yet built) is the hottest path in this design and needs to filter "an
+ * available item for this template" directly, without a join, the same
+ * reason tasks.templateId exists directly on tasks rather than only
+ * reachable via task_template_generation_events.
+ */
+export const payloadItems = pgTable(
+  "payload_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => payloadSources.id),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => taskTemplates.id),
+    content: text("content").notNull(),
+    status: payloadItemStatusEnum("status").notNull().default("available"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    sourceIdIdx: index("payload_items_source_id_idx").on(table.sourceId),
+    // The hot-path index: generation's gate 3 (not yet built) filters
+    // exactly on these two columns together, so this composite index
+    // makes "find an available item for this template" a direct range
+    // scan -- the same reasoning as tasks_marketplace_availability_idx.
+    templateStatusIdx: index("payload_items_template_status_idx").on(
+      table.templateId,
+      table.status
+    ),
   })
 );
 
