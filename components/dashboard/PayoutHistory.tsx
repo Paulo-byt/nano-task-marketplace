@@ -20,7 +20,13 @@ export function PayoutHistory({ payouts }: { payouts: Payout[] }) {
           {payouts.map((payout) => (
             <li
               key={payout.id}
-              className="flex items-center justify-between gap-4 px-5 py-4"
+              id={`payout-${payout.id}`}
+              // 11D Step 6: the anchor target My Tasks' "View payout" link
+              // (MyTasksList.tsx) points at. target: is a plain CSS
+              // pseudo-class match on the URL fragment -- no JS, no new
+              // state -- so landing here from that link is visually
+              // obvious for a moment, then fades back to the normal row.
+              className="flex items-center justify-between gap-4 px-5 py-4 target:bg-emerald-500/[0.06] target:ring-1 target:ring-inset target:ring-emerald-500/30"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-foreground">

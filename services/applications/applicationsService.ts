@@ -52,6 +52,39 @@ export async function createApplication(taskId: string, applicantId: string) {
   }
 }
 
+/**
+ * 11D Step 4: taskFundingStatus and isReviewed exist purely to let
+ * MyTasksList.tsx render an honest, disambiguated status -- no write path
+ * anywhere changed to support this, only two more columns pulled from
+ * tables already joined here.
+ *
+ * "rejected" is overloaded in the underlying state machine: it results
+ * from three different call sites (rejectApplication, cancelTask's bulk
+ * reject of still-'applied' applications, and revokeApproval moving
+ * 'approved' -> 'rejected'), and this function alone cannot tell a caller
+ * which one happened just from applications.status. Two derived signals
+ * close most, but not all, of that gap:
+ *
+ *   - payoutStatus === 'cancelled' is a FULLY AUTHORITATIVE signal that
+ *     this went through revokeApproval specifically: grep-verified, that
+ *     value is written in exactly one place in this entire codebase
+ *     (revokeApproval, applicationsService.ts), and revokeApproval is the
+ *     only path from 'approved' to 'rejected' at all (rejectApplication
+ *     and cancelTask's own conditional UPDATEs both require
+ *     status = 'applied', so neither can ever touch an already-approved
+ *     application). No ambiguity here.
+ *
+ *   - taskFundingStatus === 'cancelled' is a BEST-EFFORT signal, not an
+ *     authoritative one: applications carries no rejectedAt timestamp, so
+ *     there is no way to prove THIS application's own rejection was
+ *     caused by the task's later cancellation, versus an earlier,
+ *     unrelated direct decline that simply happened to precede a
+ *     cancellation for other reasons. In the common case (the applicant
+ *     was still 'applied' when the creator cancelled, auto-rejecting
+ *     them) this is exactly correct. The residual imprecision is
+ *     accepted and disclosed, not fixed by adding a new column -- a
+ *     schema change for this narrow a gap was judged not worth it.
+ */
 export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
   const rows = await db
     .select({
@@ -61,16 +94,39 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
       rewardUsdc: tasks.rewardUsdc,
       status: applications.status,
       appliedAt: applications.appliedAt,
+      // Already INNER JOINed for taskTitle/rewardUsdc above -- no new join.
+      // 11D Step 4: lets the UI distinguish a "rejected" application caused
+      // by the task being cancelled from a plain creator decline. See this
+      // function's own doc comment below for the precision this can and
+      // cannot guarantee.
+      taskFundingStatus: tasks.fundingStatus,
       // LEFT join: only approved applications the worker has acted on have
       // a submission row at all -- null means "not submitted yet," not an
-      // error. Evaluation fields are deliberately not selected here: the
-      // worker's own view never exposes the AI verdict/feedback (Step 13
-      // decision), only whether/what they submitted.
+      // error. The verdict/feedback fields are still deliberately not
+      // selected here: the worker's own view never exposes the AI
+      // verdict/feedback (Step 13 decision), only whether/what they
+      // submitted, and (11D Step 4) only whether it has been looked at yet
+      // -- evaluatedAt is a timestamp, not a judgment.
       submissionContent: submissions.content,
+      evaluatedAt: submissions.evaluatedAt,
+      // LEFT join: mirrors getApplicantsForTask's own payout join below
+      // exactly -- only an approved application ever gets a payout row at
+      // all, so null here means "no payout yet," not an error.
+      // payouts_application_unique (db/schema.ts) guarantees at most one
+      // payout row per application, so joining it here can never
+      // duplicate a My Task row -- the same reason the pre-existing
+      // submissions join above is already safe (submissions_application_unique).
+      payoutStatus: payouts.status,
+      // 11D Step 6: the payout's own real primary key, already selected
+      // identically by getPayoutHistory (mockEarningsService.ts) for the
+      // Earnings page -- not a new id, just exposing the same one here so
+      // MyTasksList can link straight to the matching Payout History row.
+      payoutId: payouts.id,
     })
     .from(applications)
     .innerJoin(tasks, eq(applications.taskId, tasks.id))
     .leftJoin(submissions, eq(submissions.applicationId, applications.id))
+    .leftJoin(payouts, eq(payouts.applicationId, applications.id))
     .where(eq(applications.applicantId, applicantId))
     .orderBy(desc(applications.appliedAt));
 
@@ -83,6 +139,10 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
     appliedAt: formatDate(row.appliedAt),
     hasSubmission: row.submissionContent !== null,
     submissionContent: row.submissionContent ?? null,
+    payoutStatus: row.payoutStatus ?? null,
+    payoutId: row.payoutId ?? null,
+    taskFundingStatus: row.taskFundingStatus,
+    isReviewed: row.evaluatedAt !== null,
   }));
 }
 

@@ -23,17 +23,59 @@ const FUNDING_STATUS_LABELS: Record<Task["fundingStatus"], string> = {
   cancelled: "Cancelled",
 };
 
-const PLACEHOLDER_REQUIREMENTS = [
-  "Complete the task exactly as described",
-  "Submit proof of completion for review",
-  "Payment is released automatically upon approval",
-];
+// 11D Step 2: mirrors, read-only, the exact literal string
+// generateTaskInstance (services/marketplace/taskTemplatesService.ts)
+// embeds for a payload-sourced instance:
+// `${reserved.description}\n\n---\nPayload:\n${claimedItem.content}`.
+// Matching the FULL literal marker (not a loose "---" or "Payload:"
+// search) is what keeps this safe: an ordinary description that merely
+// contains the word "Payload:" somewhere never matches, and payload
+// content that happens to contain "---" or "Payload:" itself is never
+// re-split, because splitting stops at the first occurrence of this
+// exact sequence and everything after it is taken as payload content
+// verbatim, byte-for-byte, with no further parsing.
+const PAYLOAD_SEPARATOR = "\n\n---\nPayload:\n";
+
+interface DescriptionParts {
+  instructions: string;
+  payload: string | null;
+}
+
+/**
+ * Splits a task's stored description into the template's own
+ * instructions and (for a payload-sourced instance only) the claimed
+ * payload content, purely for presentation -- 11C's write/claim side is
+ * untouched by this, and nothing here fetches, interprets, or mutates
+ * the payload content itself. A self-contained task, or any description
+ * that doesn't contain the exact marker, returns the description
+ * unchanged with payload: null -- byte-for-byte identical to how it
+ * rendered before this split existed. A marker found with nothing (or
+ * only whitespace) after it -- not producible by the real write path,
+ * but not trusted blindly either -- fails safe the same way: render the
+ * original description whole rather than show an empty section.
+ */
+function splitPayloadDescription(description: string): DescriptionParts {
+  const separatorIndex = description.indexOf(PAYLOAD_SEPARATOR);
+  if (separatorIndex === -1) {
+    return { instructions: description, payload: null };
+  }
+
+  const instructions = description.slice(0, separatorIndex);
+  const payload = description.slice(separatorIndex + PAYLOAD_SEPARATOR.length);
+
+  if (payload.trim().length === 0) {
+    return { instructions: description, payload: null };
+  }
+
+  return { instructions, payload };
+}
 
 export async function TaskDetails({ task }: { task: Task }) {
   // Server Component: resolved server-side according to the active
   // PAYOUT_CUSTODY_MODE, then passed down as a plain address string --
   // never a client-side import of executor/Circle configuration.
   const executorAddress = await getExecutorAddress();
+  const { instructions, payload } = splitPayloadDescription(task.description);
 
   return (
     <article className="flex flex-col gap-6 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
@@ -58,11 +100,22 @@ export async function TaskDetails({ task }: { task: Task }) {
           {task.title}
         </h1>
         <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400 sm:text-base">
-          {task.description}
+          {instructions}
         </p>
       </div>
 
-      <dl className="grid grid-cols-2 gap-4 border-y border-black/10 py-5 dark:border-white/10 sm:grid-cols-4">
+      {payload && (
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">
+            Task-specific material
+          </h2>
+          <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-600 dark:text-zinc-400 sm:text-base">
+            {payload}
+          </p>
+        </div>
+      )}
+
+      <dl className="grid grid-cols-2 gap-4 border-y border-black/10 py-5 dark:border-white/10 sm:grid-cols-3">
         <div>
           <dt className="text-xs uppercase tracking-wide text-zinc-500">
             Reward
@@ -87,29 +140,7 @@ export async function TaskDetails({ task }: { task: Task }) {
             {task.creator}
           </dd>
         </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-zinc-500">
-            Deadline
-          </dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            Not yet set
-          </dd>
-        </div>
       </dl>
-
-      <div>
-        <h2 className="text-sm font-semibold text-foreground">
-          Requirements
-        </h2>
-        <ul className="mt-2 flex flex-col gap-1.5 text-sm text-zinc-600 dark:text-zinc-400">
-          {PLACEHOLDER_REQUIREMENTS.map((requirement) => (
-            <li key={requirement} className="flex gap-2">
-              <span aria-hidden="true">•</span>
-              {requirement}
-            </li>
-          ))}
-        </ul>
-      </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
         <Link
