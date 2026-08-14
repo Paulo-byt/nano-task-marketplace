@@ -1,7 +1,7 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { parseUnits, type Address } from "viem";
 import { db } from "@/db";
-import { taskTemplates, users } from "@/db/schema";
+import { taskTemplates, taskTemplateGenerationEvents, tasks, users } from "@/db/schema";
 import { getOrCreateUserByWallet } from "@/services/users/walletUser";
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
@@ -448,4 +448,241 @@ export async function fundTemplatePool(
   }
 
   return recordPoolFunding(templateId, txHash, amountUsdc);
+}
+
+// ---------------------------------------------------------------------------
+// Instance generation & supply replenishment. Self-contained templates only
+// -- title/description/etc. clone verbatim, no payload source is consulted.
+// No route calls this directly; approve/route.ts and cancel/route.ts each
+// call replenishTemplateIfNeeded as a best-effort step appended after their
+// own existing, unmodified success paths, the same posture markTaskReleased
+// already established at the payout routes.
+// ---------------------------------------------------------------------------
+
+/**
+ * The single, global, v1 target: how many open+funded instances the
+ * platform tries to keep available per template at once. Not a lifetime
+ * cap, not a treasury figure -- purely a steady-state inventory goal.
+ * Deliberately one constant for every template rather than a column: no
+ * admin surface exists yet to set a per-template value, so a real column
+ * would be configuration nobody can configure. $0.10-$0.50 typical
+ * self-contained-template rewards mean a pool of $2-$10 sustains this
+ * target, well within reasonable testnet funding.
+ */
+export const DEFAULT_TARGET_AVAILABLE = 20;
+
+/**
+ * The templateId of a specific task, or null if it has none (every
+ * manually-posted task, and every task created before this phase).
+ * Deliberately a new, narrow, standalone lookup rather than extending
+ * getTaskForFunding in mockTasks.ts -- that function already serves the
+ * approve/cancel routes today, but it lives in the same file as cancelTask
+ * and markTaskReleased, and the smallest way to guarantee zero risk to
+ * either is to not touch that file at all, at the cost of one extra small
+ * query here instead.
+ */
+export async function getTaskTemplateId(taskId: string): Promise<string | null> {
+  if (!UUID_RE.test(taskId)) {
+    return null;
+  }
+
+  const [row] = await db
+    .select({ templateId: tasks.templateId })
+    .from(tasks)
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+
+  return row?.templateId ?? null;
+}
+
+export type GenerationOutcome = "created" | "duplicate" | "insufficient_capacity";
+
+export interface GenerationAttemptResult {
+  outcome: GenerationOutcome;
+  taskId: string | null;
+}
+
+/**
+ * One atomic attempt to generate a single instance from a template, keyed
+ * by triggerKey. Returns a result rather than throwing for its three
+ * ordinary outcomes -- unlike fundTemplatePool's error classes (which
+ * signal genuinely exceptional, human-actionable failures), "duplicate
+ * trigger" and "insufficient capacity right now" are routine, expected
+ * outcomes of an automated, best-effort process; forcing callers to
+ * try/catch normal control flow would be the wrong shape here.
+ *
+ * The exact sequence, one transaction, in this order and no other:
+ *
+ *   1. INSERT the generation-event row FIRST, before anything else. Its
+ *      UNIQUE(template_id, trigger_key) constraint is what makes a
+ *      concurrent or retried call for the SAME triggerKey a cheap,
+ *      immediate rejection -- caught here as isUniqueViolation, before
+ *      the pool is ever touched. Ordering this first (not last, as the
+ *      naive sequence would have it) is what prevents two concurrent
+ *      duplicate attempts from both reserving pool capacity before
+ *      either reaches a uniqueness check: reserving first would let
+ *      exactly that race double-spend the pool for one logical attempt.
+ *
+ *   2. UPDATE task_templates, incrementing pool_allocated_usdc by the
+ *      template's OWN reward_usdc, conditional on status='active' AND
+ *      the increment staying within pool_total_usdc -- one
+ *      self-referential conditional UPDATE, the same safe shape already
+ *      proven for markTaskFunded and the approve-vs-approve race (0/25,
+ *      twice, this session). No SELECT...FOR UPDATE: this isn't the
+ *      cross-table blind-read shape that required one for cancel-vs-
+ *      approve. RETURNING the whole row means the fields needed to clone
+ *      the instance are already in hand -- no separate read.
+ *
+ *      If this matches no row (paused/archived template, or genuinely
+ *      insufficient headroom), the transaction still COMMITS -- with
+ *      just the event row from step 1, generatedTaskId left null. That
+ *      is not a partial failure to clean up; it is the schema's own
+ *      intended shape for "attempted, no capacity" (see
+ *      task_template_generation_events's own doc comment).
+ *
+ *   3. INSERT the new tasks row using step 2's RETURNING data verbatim:
+ *      status='open', fundingStatus='funded' (set directly -- the pool
+ *      was already independently verified when funded, there is no
+ *      per-instance approval to wait for), fundingTxHash=null (NEVER the
+ *      template's pool_funding_tx_hash -- that would collide with
+ *      tasks_funding_tx_hash_unique the moment a second instance were
+ *      generated from the same pool), fundedAmountUsdc=the reward
+ *      (informational, matches what a manually-funded task shows;
+ *      nothing reads it for correctness -- payout uses tasks.rewardUsdc),
+ *      templateId=the template's id.
+ *
+ *   4. UPDATE the step-1 event row's generatedTaskId to the new task's id.
+ */
+export async function generateTaskInstance(
+  templateId: string,
+  triggerKey: string
+): Promise<GenerationAttemptResult> {
+  return db.transaction(async (tx) => {
+    let eventId: string;
+    try {
+      const [event] = await tx
+        .insert(taskTemplateGenerationEvents)
+        .values({ templateId, triggerKey })
+        .returning({ id: taskTemplateGenerationEvents.id });
+      eventId = event.id;
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        return { outcome: "duplicate", taskId: null };
+      }
+      throw err;
+    }
+
+    const [reserved] = await tx
+      .update(taskTemplates)
+      .set({
+        poolAllocatedUsdc: sql`${taskTemplates.poolAllocatedUsdc} + ${taskTemplates.rewardUsdc}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(taskTemplates.id, templateId),
+          eq(taskTemplates.status, "active"),
+          sql`${taskTemplates.poolAllocatedUsdc} + ${taskTemplates.rewardUsdc} <= ${taskTemplates.poolTotalUsdc}`
+        )
+      )
+      .returning();
+
+    if (!reserved) {
+      return { outcome: "insufficient_capacity", taskId: null };
+    }
+
+    const [task] = await tx
+      .insert(tasks)
+      .values({
+        title: reserved.title,
+        description: reserved.description,
+        rewardUsdc: reserved.rewardUsdc,
+        category: reserved.category,
+        difficulty: reserved.difficulty,
+        estimatedTime: reserved.estimatedTime,
+        creatorId: reserved.creatorId,
+        status: "open",
+        fundingStatus: "funded",
+        fundedAmountUsdc: reserved.rewardUsdc,
+        fundedAt: new Date(),
+        templateId: reserved.id,
+      })
+      .returning({ id: tasks.id });
+
+    await tx
+      .update(taskTemplateGenerationEvents)
+      .set({ generatedTaskId: task.id })
+      .where(eq(taskTemplateGenerationEvents.id, eventId));
+
+    return { outcome: "created", taskId: task.id };
+  });
+}
+
+export interface ReplenishmentResult {
+  attempted: number;
+  created: number;
+  stoppedEarly: boolean;
+}
+
+/**
+ * Batch-to-target, never "+1": counts this template's current open+funded
+ * instances, and if that's below DEFAULT_TARGET_AVAILABLE, attempts
+ * exactly (target - current) generations -- never merely one, regardless
+ * of how many were just consumed. triggerTaskId is the task whose
+ * approval-closure or cancellation caused this call; each attempted slot
+ * gets its own trigger key (`${triggerTaskId}:${slot}`), independently
+ * idempotent per the sequence in generateTaskInstance's own doc comment.
+ *
+ * Stops early only on "insufficient_capacity" -- a real signal that the
+ * pool cannot cover another instance right now, so trying further slots
+ * in the same call would be pointless. A "duplicate" result for one slot
+ * does NOT stop the loop: it means that specific slot was already
+ * handled (by a concurrent or earlier call), not that the pool is short,
+ * so later slots are still worth attempting.
+ *
+ * Known, deliberately accepted v1 residual: two different tasks from the
+ * SAME template closing in the same narrow window can each independently
+ * read a stale "current" count before either commits, and both decide to
+ * replenish -- a bounded, self-correcting overshoot past target, never a
+ * safety violation (every generated instance is still individually,
+ * fully, safely funded; nothing is duplicated or double-spent). Closing
+ * this fully would need a template-row lock held across the whole batch;
+ * deliberately not added for v1, per explicit approval, in favor of the
+ * simpler shape here.
+ */
+export async function replenishTemplateIfNeeded(
+  templateId: string,
+  triggerTaskId: string
+): Promise<ReplenishmentResult> {
+  const [countRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.templateId, templateId),
+        eq(tasks.status, "open"),
+        eq(tasks.fundingStatus, "funded")
+      )
+    );
+
+  const current = countRow?.n ?? 0;
+  const needed = Math.max(0, DEFAULT_TARGET_AVAILABLE - current);
+
+  let attempted = 0;
+  let created = 0;
+  let stoppedEarly = false;
+
+  for (let slot = 0; slot < needed; slot++) {
+    attempted++;
+    const result = await generateTaskInstance(templateId, `${triggerTaskId}:${slot}`);
+    if (result.outcome === "created") {
+      created++;
+    } else if (result.outcome === "insufficient_capacity") {
+      stoppedEarly = true;
+      break;
+    }
+    // "duplicate" -- this exact slot was already handled; continue.
+  }
+
+  return { attempted, created, stoppedEarly };
 }

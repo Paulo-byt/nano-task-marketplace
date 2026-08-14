@@ -7,6 +7,10 @@ import {
   approveApplication,
   ApplicationNotApprovableError,
 } from "@/services/applications/applicationsService";
+import {
+  getTaskTemplateId,
+  replenishTemplateIfNeeded,
+} from "@/services/marketplace/taskTemplatesService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -75,6 +79,27 @@ export async function POST(
 
   try {
     const result = await approveApplication(applicationId, taskId, task.rewardUsdc);
+
+    // Best-effort supply replenishment, appended after approval's own
+    // success -- never allowed to turn a successful approval into an
+    // error response. This task just left marketplace availability
+    // (status: open -> closed); if it came from a platform template,
+    // that's exactly the signal to check whether the template needs
+    // topping back up toward its target (Phase 11C: instance generation
+    // & supply replenishment).
+    try {
+      const templateId = await getTaskTemplateId(taskId);
+      if (templateId) {
+        await replenishTemplateIfNeeded(templateId, taskId);
+      }
+    } catch (err) {
+      log.error("approve_replenishment_check_failed", {
+        applicationId,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return NextResponse.json(
       { status: "approved", payoutId: result.payoutId },
       { status: 200 }

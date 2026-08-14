@@ -3,7 +3,12 @@ import { cookies } from "next/headers";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { cancelTask, getTaskForFunding } from "@/services/marketplace/mockTasks";
 import { hasPendingPayoutForTask } from "@/services/payouts/payoutsService";
+import {
+  getTaskTemplateId,
+  replenishTemplateIfNeeded,
+} from "@/services/marketplace/taskTemplatesService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
+import { log } from "@/lib/log";
 
 export async function POST(
   request: Request,
@@ -71,6 +76,25 @@ export async function POST(
       },
       { status: 409 }
     );
+  }
+
+  // Best-effort supply replenishment, appended after cancellation's own
+  // success -- never allowed to turn a successful cancellation into an
+  // error response. This task just left marketplace availability
+  // (fundingStatus left 'funded'); if it came from a platform template,
+  // that's exactly the signal to check whether the template needs
+  // topping back up toward its target (Phase 11C: instance generation &
+  // supply replenishment).
+  try {
+    const templateId = await getTaskTemplateId(taskId);
+    if (templateId) {
+      await replenishTemplateIfNeeded(templateId, taskId);
+    }
+  } catch (err) {
+    log.error("cancel_replenishment_check_failed", {
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return NextResponse.json({ status: "cancelled" }, { status: 200 });
