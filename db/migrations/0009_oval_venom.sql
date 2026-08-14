@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "task_templates_pool_funding_tx_hash_unique" ON "task_templates" USING btree ("pool_funding_tx_hash");

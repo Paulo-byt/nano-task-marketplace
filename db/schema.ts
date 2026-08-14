@@ -10,7 +10,9 @@ import {
   uniqueIndex,
   index,
   jsonb,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const taskCategoryEnum = pgEnum("task_category", [
   "Writing",
@@ -69,6 +71,12 @@ export const fraudRiskLevelEnum = pgEnum("fraud_risk_level", [
   "high",
 ]);
 
+export const taskTemplateStatusEnum = pgEnum("task_template_status", [
+  "active",
+  "paused",
+  "archived",
+]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   walletAddress: text("wallet_address").notNull().unique(),
@@ -105,6 +113,12 @@ export const tasks = pgTable(
     fundingTxHash: text("funding_tx_hash"),
     fundedAmountUsdc: numeric("funded_amount_usdc", { precision: 10, scale: 2 }),
     fundedAt: timestamp("funded_at", { withTimezone: true }),
+    // Phase 12 (never-ending task supply, schema-only step): nullable --
+    // every task posted manually, and every task that exists today, has no
+    // template. Set only for an instance generated from a task_templates
+    // pool (Phase 12's later, not-yet-built generation step); no other
+    // write path ever touches this column yet.
+    templateId: uuid("template_id").references(() => taskTemplates.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -124,6 +138,122 @@ export const tasks = pgTable(
     marketplaceAvailabilityIdx: index(
       "tasks_marketplace_availability_idx"
     ).on(table.status, table.fundingStatus, table.createdAt, table.id),
+    // Phase 12: dashboard drill-down ("instances for this template") and
+    // the future generation path's own lookups will filter on this column.
+    templateIdIdx: index("tasks_template_id_idx").on(table.templateId),
+    // Phase 12: closes the residual isFundingTxHashUsed's own doc comment
+    // already named -- that check was previously an application-level
+    // SELECT-before-UPDATE race, not a database guarantee. NULL is exempt
+    // from uniqueness (every unfunded task has funding_tx_hash = null), so
+    // this is safe against all existing data; only two tasks sharing the
+    // same real, non-null funding transaction hash would violate it.
+    fundingTxHashUnique: uniqueIndex("tasks_funding_tx_hash_unique").on(
+      table.fundingTxHash
+    ),
+  })
+);
+
+/**
+ * A repeatable task definition plus the funding pool that backs its future
+ * instances, in one row (Phase 12, schema-only step -- see the Never-Ending
+ * Task Supply Phase 2 design review). No code yet reads or writes this
+ * table; it exists so the next phase's generation logic has somewhere
+ * race-safe to atomically debit against, using the same conditional-UPDATE
+ * idiom as markTaskFunded and approveApplication elsewhere in this
+ * codebase, not a new pattern.
+ *
+ * poolTotalUsdc and poolAllocatedUsdc are deliberately numbers, not an
+ * enum: unlike a single task's binary funded/not-funded state, a pool's
+ * funding is continuous -- partially consumed, fully consumed, replenished
+ * -- and the two numbers express that directly. Remaining capacity is
+ * always poolTotalUsdc - poolAllocatedUsdc; no instance may ever be
+ * generated for less than that.
+ *
+ * category/difficulty deliberately reuse taskCategoryEnum/
+ * taskDifficultyEnum rather than a parallel enum -- a template's instances
+ * are ordinary tasks and must be describable with the exact same values.
+ */
+export const taskTemplates = pgTable(
+  "task_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => users.id),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    category: taskCategoryEnum("category").notNull(),
+    difficulty: taskDifficultyEnum("difficulty").notNull(),
+    estimatedTime: text("estimated_time").notNull(),
+    rewardUsdc: numeric("reward_usdc", { precision: 10, scale: 2 }).notNull(),
+    status: taskTemplateStatusEnum("status").notNull().default("active"),
+    poolTotalUsdc: numeric("pool_total_usdc", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    poolAllocatedUsdc: numeric("pool_allocated_usdc", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    poolFundingTxHash: text("pool_funding_tx_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    creatorIdIdx: index("task_templates_creator_id_idx").on(table.creatorId),
+    // Database-enforced backstop alongside whatever atomic conditional
+    // UPDATE the generation step (not yet built) uses to debit the pool --
+    // the same layered-guard philosophy already used throughout this
+    // schema, never relying on application code alone.
+    poolAllocationCheck: check(
+      "task_templates_pool_allocation_check",
+      sql`${table.poolAllocatedUsdc} <= ${table.poolTotalUsdc}`
+    ),
+    // Phase C (platform funding/pool mechanics): mirrors
+    // tasks_funding_tx_hash_unique exactly, and closes the same class of
+    // gap for template pools -- the same real, verified funding
+    // transaction must never back two different templates' pools at once.
+    // NULL is exempt from uniqueness (every unfunded template has
+    // pool_funding_tx_hash = null), so this is safe against all existing
+    // rows. Unlike the tasks-side column, this one is a "most recent
+    // funding" pointer that legitimately changes on replenishment -- the
+    // index only ever compares CURRENT values across rows, so a later,
+    // different, independently-verified replenishment transaction is
+    // never blocked by an earlier one this same template already held.
+    poolFundingTxHashUnique: uniqueIndex(
+      "task_templates_pool_funding_tx_hash_unique"
+    ).on(table.poolFundingTxHash),
+  })
+);
+
+/**
+ * The idempotency ledger for template-driven generation (Phase 12,
+ * schema-only step). One row per generation attempt, keyed by whatever
+ * triggered it -- the unique constraint below, not application logic, is
+ * what makes a retried or duplicated trigger a safe no-op instead of a
+ * second instance, the same role payouts_application_unique already plays
+ * for a duplicate payout attempt. generatedTaskId is nullable because an
+ * attempt against an exhausted pool legitimately produces no task.
+ */
+export const taskTemplateGenerationEvents = pgTable(
+  "task_template_generation_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    templateId: uuid("template_id")
+      .notNull()
+      .references(() => taskTemplates.id),
+    triggerKey: text("trigger_key").notNull(),
+    generatedTaskId: uuid("generated_task_id").references(() => tasks.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    templateTriggerUnique: uniqueIndex(
+      "task_template_generation_events_template_trigger_unique"
+    ).on(table.templateId, table.triggerKey),
   })
 );
 
