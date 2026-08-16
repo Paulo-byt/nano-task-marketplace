@@ -2,17 +2,50 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { cn } from "@/components/ui/cn";
 
-const NAV_LINKS = [
-  { label: "Home", href: "/" },
-  { label: "Marketplace", href: "/marketplace" },
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "My Tasks", href: "/dashboard/my-tasks" },
-  { label: "Posted Tasks", href: "/dashboard/posted-tasks" },
-  { label: "Earnings", href: "/dashboard/earnings" },
-  { label: "Profile", href: "/dashboard/profile" },
-  { label: "Notifications", href: "/dashboard/notifications" },
-  { label: "Settings", href: "/dashboard/settings" },
+function isUnderPath(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+interface NavLink {
+  label: string;
+  href: string;
+  isActive: (pathname: string) => boolean;
+}
+
+// Profile and Notifications (C5) are reachable only from the Settings page
+// now, so they're conceptually part of the Settings subtree even though
+// their routes don't nest under /dashboard/settings.
+function isSettingsRoute(pathname: string): boolean {
+  return (
+    isUnderPath(pathname, "/dashboard/settings") ||
+    isUnderPath(pathname, "/dashboard/profile") ||
+    isUnderPath(pathname, "/dashboard/notifications")
+  );
+}
+
+// Dashboard also covers the Marketplace workspace and every /dashboard/*
+// descendant except the Settings subtree, which is its own top-level
+// destination and must win over Dashboard's own broader match.
+const NAV_LINKS: NavLink[] = [
+  {
+    label: "Home",
+    href: "/",
+    isActive: (pathname) => pathname === "/",
+  },
+  {
+    label: "Dashboard",
+    href: "/dashboard",
+    isActive: (pathname) =>
+      (isUnderPath(pathname, "/dashboard") && !isSettingsRoute(pathname)) ||
+      isUnderPath(pathname, "/marketplace"),
+  },
+  {
+    label: "Settings",
+    href: "/dashboard/settings",
+    isActive: (pathname) => isSettingsRoute(pathname),
+  },
 ];
 
 export function HeaderNav() {
@@ -21,20 +54,21 @@ export function HeaderNav() {
   return (
     <nav
       aria-label="Main navigation"
-      className="order-3 flex w-full min-w-0 items-center gap-5 overflow-x-auto text-sm font-medium text-zinc-600 dark:text-zinc-400 md:order-2 md:w-auto"
+      className="order-3 flex items-center gap-1 text-sm font-medium md:order-2"
     >
       {NAV_LINKS.map((link) => {
-        const isActive = pathname === link.href;
+        const isActive = link.isActive(pathname);
         return (
           <Link
             key={link.href}
             href={link.href}
             aria-current={isActive ? "page" : undefined}
-            className={`whitespace-nowrap transition-colors ${
+            className={cn(
+              "rounded-full px-3 py-1.5 transition-colors",
               isActive
-                ? "text-foreground visited:text-foreground"
-                : "text-zinc-600 visited:text-zinc-600 hover:text-foreground dark:text-zinc-400 dark:visited:text-zinc-400"
-            }`}
+                ? "bg-primary/10 text-primary visited:text-primary"
+                : "text-zinc-600 visited:text-zinc-600 hover:bg-surface-muted hover:text-foreground dark:text-zinc-400 dark:visited:text-zinc-400"
+            )}
           >
             {link.label}
           </Link>

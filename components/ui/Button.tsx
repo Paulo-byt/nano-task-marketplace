@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "@/components/ui/cn";
 
-type ButtonVariant = "primary" | "secondary" | "destructive" | "warning" | "link";
+type ButtonVariant = "primary" | "secondary" | "destructive" | "warning" | "link" | "brand";
 type ButtonSize = "sm" | "lg";
 
 interface ButtonOwnProps {
@@ -48,6 +48,15 @@ const VARIANT_STYLES: Record<ButtonVariant, string> = {
   destructive: "border border-error/30 text-error hover:bg-error/10",
   warning: "bg-warning text-white hover:opacity-90",
   link: "text-primary underline-offset-2 hover:underline",
+  // Additive-only, added for the homepage's premium redesign: a solid
+  // brand-colored CTA option, distinct from "primary" (bg-foreground,
+  // deliberately never brand-colored -- see globals.css's own Step A
+  // comment: "never as the default button fill... per the audit"). No
+  // existing call site anywhere in the app uses "brand" today, so adding
+  // this key changes nothing for any of them -- every existing
+  // variant="primary" usage (Sign In, Connect Wallet, Submit Work, etc.)
+  // renders byte-for-byte identically to before.
+  brand: "bg-primary text-primary-foreground hover:opacity-90",
 };
 
 export function Button(props: ButtonProps) {

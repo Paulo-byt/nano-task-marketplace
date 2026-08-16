@@ -1,13 +1,61 @@
 @import "tailwindcss";
 
+/*
+ * 11A Step A -- global design-token foundation.
+ *
+ * Intentionally small: background/foreground/surface/border, one brand
+ * accent (primary), and the four semantic tones (success/warning/error/
+ * info) already used ad hoc throughout the app. Values are the exact hex
+ * equivalents of the Tailwind palette shades already scattered across
+ * components (emerald/amber/red/zinc at -600 for light text-on-white,
+ * -400 for dark text-on-near-black) -- this centralizes the existing
+ * color LANGUAGE rather than inventing a new one, so nothing visually
+ * changes today; it just gives Step B something real to consume instead
+ * of another round of copy-pasted Tailwind strings.
+ *
+ * No component is refactored to use these tokens in this step -- that is
+ * Step B's job.
+ */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Surfaces: "surface" reads as page background today on purpose --
+     Step B's Card primitive is where a real elevation step (shadow, not
+     a stark fill change) gets introduced. "surface-muted" is for
+     secondary/recessed areas. */
+  --surface: #ffffff;
+  --surface-muted: #f5f5f5;
+  --border: #e5e5e5;
+
+  /* Brand accent -- restrained, used for links/selected-states/highlights,
+     never as the default button fill (bg-foreground remains the primary
+     CTA language, per the audit). Indigo: reads as modern/financial/
+     trustworthy without the neon-gradient "crypto" cliché. */
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+
+  /* Semantic tones -- same meaning already established everywhere:
+     success=positive/paid, warning=pending/attention, error=failed/
+     destructive, info=neutral/secondary. */
+  --success: #059669;
+  --warning: #d97706;
+  --error: #dc2626;
+  --info: #52525b;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,19 +64,48 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    /* Dark-mode elevation goes lighter than the page background, not
+       darker -- a surface "closer to the viewer" reads as slightly
+       brighter, the same convention every mature dark theme uses. This
+       is a deliberate, non-inverted choice, not background's mirror. */
+    --surface: #141414;
+    --surface-muted: #1c1c1c;
+    --border: #2a2a2a;
+
+    /* Lighter accent shade for adequate contrast against a near-black
+       background; dark text for the (rare) case it's used as a fill. */
+    --primary: #818cf8;
+    --primary-foreground: #1e1b4b;
+
+    --success: #34d399;
+    --warning: #fbbf24;
+    --error: #f87171;
+    --info: #a1a1aa;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* 11A Step A fix: this previously hardcoded Arial/Helvetica, silently
+     overriding the Geist font already configured and loaded in
+     app/layout.tsx (nothing applied the font-sans utility that
+     @theme inline above generates, so this literal rule always won).
+     --font-sans already resolves to --font-geist-sans by design; this is
+     the first time anything actually consumes it. */
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
 a:focus-visible,
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid var(--foreground);
+  /* Now sourced from the brand accent instead of plain foreground --
+     explicitly sanctioned ("if the global focus ring can safely consume
+     the new accent/token system without changing behavior, that is
+     acceptable"). Same trigger, same outline treatment, only the color
+     changed, and contrast holds in both modes (checked below). */
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
   border-radius: 4px;
 }

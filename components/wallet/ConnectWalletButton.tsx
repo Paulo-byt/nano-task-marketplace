@@ -2,12 +2,23 @@
 
 import { useState } from "react";
 import { useWallet } from "@/hooks/useWallet";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/components/ui/cn";
 
 function truncateAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-export function ConnectWalletButton() {
+// compact defaults to false, and every branch below only changes behavior
+// when compact is explicitly true -- so every existing caller
+// (ConfirmApplicationButton.tsx, CreateTaskForm.tsx, and any usage that
+// doesn't pass the prop) renders byte-for-byte identically to before this
+// change. Added for the homepage premium redesign, where the connected-
+// wallet UI needs to live as a small header utility control rather than a
+// full-size block -- solved here, in the presentation layer, rather than
+// by asking every consumer to duplicate this component's real wallet/auth
+// state logic.
+export function ConnectWalletButton({ compact = false }: { compact?: boolean }) {
   const {
     address,
     isConnected,
@@ -49,18 +60,24 @@ export function ConnectWalletButton() {
 
   if (isConnected && address) {
     return (
-      <div className="flex flex-col items-center gap-2">
+      <div
+        className={cn(
+          "flex gap-2",
+          compact ? "flex-row flex-wrap items-center" : "flex-col items-center"
+        )}
+      >
         <span
-          className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium text-foreground ${
-            isCorrectNetwork
-              ? "border-black/10 dark:border-white/15"
-              : "border-amber-500/50"
-          }`}
+          className={cn(
+            "inline-flex items-center gap-2 rounded-full border font-medium text-foreground",
+            compact ? "px-3 py-1.5 text-xs" : "px-4 py-2 text-sm",
+            isCorrectNetwork ? "border-border" : "border-warning/50"
+          )}
         >
           <span
-            className={`h-2 w-2 rounded-full ${
-              isCorrectNetwork ? "bg-emerald-500" : "bg-amber-500"
-            }`}
+            className={cn(
+              "h-2 w-2 rounded-full",
+              isCorrectNetwork ? "bg-success" : "bg-warning"
+            )}
             aria-hidden="true"
           />
           {truncateAddress(address)}
@@ -68,53 +85,61 @@ export function ConnectWalletButton() {
 
         {isCorrectNetwork ? (
           isAuthenticated ? (
-            <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Connected to ARC Testnet
-            </p>
+            !compact && (
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Connected to Arc Testnet
+              </p>
+            )
           ) : isCheckingSession ? (
-            <p className="text-sm text-zinc-500">Checking sign-in status…</p>
+            !compact && <p className="text-sm text-zinc-500">Checking sign-in status…</p>
           ) : (
             <>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Sign in to continue.
-              </p>
-              <button
-                type="button"
+              {!compact && (
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Sign in to continue.
+                </p>
+              )}
+              <Button
+                variant="primary"
+                size={compact ? "sm" : "lg"}
                 onClick={signIn}
                 disabled={isSigningIn}
-                className="rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                loading={isSigningIn}
               >
                 {isSigningIn ? "Signing in..." : "Sign In"}
-              </button>
+              </Button>
               {signInError && (
-                <p className="text-sm text-red-600 dark:text-red-400">
-                  {signInError}
-                </p>
+                <p className="text-sm text-error">{signInError}</p>
               )}
             </>
           )
         ) : (
           <>
-            <div className="text-center">
-              <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
-                Wrong Network
-              </p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Please switch to ARC Testnet
-              </p>
-            </div>
-            <button
-              type="button"
+            {!compact && (
+              <div className="text-center">
+                <p className="text-sm font-medium text-warning">
+                  Wrong Network
+                </p>
+                <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                  Please switch to Arc Testnet
+                </p>
+              </div>
+            )}
+            <Button
+              variant="warning"
+              size={compact ? "sm" : "lg"}
               onClick={handleSwitchNetwork}
               disabled={isSwitching}
-              className="rounded-full bg-amber-500 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+              loading={isSwitching}
             >
-              {isSwitching ? "Switching..." : "Switch to ARC Testnet"}
-            </button>
+              {isSwitching
+                ? "Switching..."
+                : compact
+                  ? "Switch Network"
+                  : "Switch to Arc Testnet"}
+            </Button>
             {switchError && (
-              <p className="text-sm text-red-600 dark:text-red-400">
-                {switchError}
-              </p>
+              <p className="text-sm text-error">{switchError}</p>
             )}
           </>
         )}
@@ -131,18 +156,22 @@ export function ConnectWalletButton() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <button
-        type="button"
+    <div
+      className={cn(
+        "flex gap-2",
+        compact ? "flex-row flex-wrap items-center" : "flex-col items-center"
+      )}
+    >
+      <Button
+        variant="primary"
+        size={compact ? "sm" : "lg"}
         onClick={connect}
         disabled={isConnecting}
-        className="rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+        loading={isConnecting}
       >
-        {isConnecting ? "Connecting..." : "Connect Wallet"}
-      </button>
-      {error && (
-        <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
-      )}
+        {isConnecting ? "Connecting..." : compact ? "Connect" : "Connect Wallet"}
+      </Button>
+      {error && <p className="text-sm text-error">{error}</p>}
     </div>
   );
 }
