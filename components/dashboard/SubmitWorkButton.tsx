@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/Button";
+import { Textarea } from "@/components/ui/Textarea";
 
 type Status = "idle" | "submitting" | "success" | "error";
 
@@ -30,6 +33,7 @@ export function SubmitWorkButton({
   applicationId: string;
 }) {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [content, setContent] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +68,15 @@ export function SubmitWorkButton({
       setStatus("success");
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ["my-tasks"] });
+        // M5: for a platform-owned task, evaluation already ran
+        // synchronously server-side by the time this response returned --
+        // this button is also rendered from a Server Component (the
+        // marketplace task-detail workspace), which has no React Query
+        // cache to invalidate at all, so refresh() is what actually makes
+        // an already-computed decision (e.g. "Accepted -- awaiting
+        // payout") appear without a manual reload. A harmless no-op for a
+        // creator-owned task, which has no decision to reveal here.
+        router.refresh();
       }, SUCCESS_ACKNOWLEDGMENT_MS);
     } catch {
       setError("Failed to submit work.");
@@ -86,13 +99,12 @@ export function SubmitWorkButton({
 
   return (
     <div className="flex w-full flex-col gap-1 sm:w-64">
-      <textarea
+      <Textarea
         rows={2}
         placeholder="Describe the work you completed…"
         value={content}
         onChange={(event) => setContent(event.target.value)}
         maxLength={MAX_CONTENT_LENGTH}
-        className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
       />
       <p
         className={`text-right text-[10px] ${
@@ -103,14 +115,14 @@ export function SubmitWorkButton({
       >
         {content.length} / {MAX_CONTENT_LENGTH}
       </p>
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
         onClick={handleSubmit}
         disabled={status === "submitting"}
-        className="inline-flex items-center justify-center rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "submitting" ? "Submitting…" : "Submit Work"}
-      </button>
+      </Button>
       {status === "error" && error && (
         <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
       )}

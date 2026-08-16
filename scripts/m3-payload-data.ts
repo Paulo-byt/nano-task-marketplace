@@ -1,0 +1,275 @@
+/**
+ * Phase M3 (Platform-Owned Evergreen Task System): locally hand-authored
+ * payload content for the initial 11 platform templates -- NOT generated
+ * via generatePayloadContent()/Anthropic, per the explicit decision to keep
+ * Anthropic credit off the Arc Testnet critical path. This is pure data,
+ * no logic, no imports, no database or network access -- scripts/
+ * seed-platform-templates-m3.ts is the only thing that reads it.
+ *
+ * Every array holds exactly 20 entries, each entry containing only the
+ * variable material a worker sees -- no reward/difficulty/category/template
+ * metadata, no internal IDs, no secrets. R1/R5's protocol and project names
+ * are real, recognizable, existing Web3 entities, not invented; their
+ * "Context"/"Description" lines are deliberately generic category labels
+ * rather than detailed mechanism claims, since researching the mechanism is
+ * the worker's own job for R1, and R3/R5 is not making any current-status
+ * claim the worker is themselves asked to determine.
+ */
+
+export const W1_CONCEPTS: string[] = [
+  "gas fees",
+  "seed phrases",
+  "smart contracts",
+  "token approvals",
+  "transaction hashes",
+  "block explorers",
+  "testnets",
+  "mainnets",
+  "stablecoins",
+  "public keys",
+  "digital signatures",
+  "confirmations",
+  "validators",
+  "RPC endpoints",
+  "bridges",
+  "liquidity pools",
+  "staking",
+  "nonces",
+  "wallet addresses",
+  "private-vs-public keys",
+];
+
+export const R1_PROTOCOLS: string[] = [
+  "Protocol: Uniswap\nContext: A decentralized exchange (DEX) protocol for swapping tokens on Ethereum and other EVM-compatible chains.",
+  "Protocol: Aave\nContext: A decentralized lending and borrowing protocol.",
+  "Protocol: MakerDAO\nContext: A decentralized protocol behind the DAI stablecoin.",
+  "Protocol: Compound\nContext: A decentralized lending protocol for earning and paying interest on crypto assets.",
+  "Protocol: Chainlink\nContext: A decentralized oracle network that supplies external data to smart contracts.",
+  "Protocol: Curve Finance\nContext: A decentralized exchange optimized for trading similarly priced assets like stablecoins.",
+  "Protocol: Lido\nContext: A liquid staking protocol for proof-of-stake blockchains.",
+  "Protocol: Ethereum Name Service (ENS)\nContext: A naming system for human-readable blockchain addresses.",
+  "Protocol: Arbitrum\nContext: A Layer 2 scaling solution for Ethereum using optimistic rollups.",
+  "Protocol: Optimism\nContext: A Layer 2 scaling solution for Ethereum using optimistic rollups.",
+  "Protocol: Polygon\nContext: A Layer 2 and multi-chain scaling platform for Ethereum.",
+  "Protocol: The Graph\nContext: A protocol for indexing and querying blockchain data.",
+  "Protocol: Filecoin\nContext: A decentralized storage network.",
+  "Protocol: 1inch\nContext: A decentralized exchange aggregator.",
+  "Protocol: SushiSwap\nContext: A decentralized exchange and DeFi platform.",
+  "Protocol: Synthetix\nContext: A protocol for issuing synthetic assets on-chain.",
+  "Protocol: Yearn Finance\nContext: A decentralized yield-aggregation protocol.",
+  "Protocol: dYdX\nContext: A decentralized exchange for perpetual futures trading.",
+  "Protocol: Balancer\nContext: A decentralized exchange and automated portfolio manager.",
+  "Protocol: GMX\nContext: A decentralized exchange for spot and perpetual trading.",
+];
+
+export const R3_PROJECTS: string[] = [
+  "Project: Ethereum Foundation\nDescription: A nonprofit organization that supports development of the Ethereum blockchain and ecosystem.",
+  "Project: ConsenSys\nDescription: A blockchain software company that builds Ethereum-related developer tools and infrastructure.",
+  "Project: Worldcoin\nDescription: A project focused on digital identity and proof-of-personhood using biometric verification.",
+  "Project: Farcaster\nDescription: A decentralized social-networking protocol.",
+  "Project: Lens Protocol\nDescription: A social-graph protocol for building decentralized social applications.",
+  "Project: EigenLayer\nDescription: A protocol that enables restaking of staked Ethereum to help secure additional networks.",
+  "Project: LayerZero\nDescription: A cross-chain messaging protocol connecting different blockchains.",
+  "Project: Safe (formerly Gnosis Safe)\nDescription: A smart-contract wallet for managing shared crypto funds.",
+  "Project: Axelar\nDescription: A cross-chain communication network connecting blockchains.",
+  "Project: Wormhole\nDescription: A cross-chain messaging protocol connecting multiple blockchains.",
+  "Project: zkSync\nDescription: A Layer 2 scaling solution for Ethereum using zero-knowledge rollups.",
+  "Project: StarkNet\nDescription: A Layer 2 scaling solution for Ethereum using zero-knowledge rollups.",
+  "Project: Base\nDescription: A Layer 2 network built on the Optimism stack.",
+  "Project: Blur\nDescription: An NFT marketplace and trading platform.",
+  "Project: OpenSea\nDescription: An NFT marketplace for buying, selling, and discovering digital collectibles.",
+  "Project: Decentraland\nDescription: A virtual world built on blockchain where users can own and develop virtual land.",
+  "Project: The Sandbox\nDescription: A blockchain-based virtual gaming world.",
+  "Project: Axie Infinity\nDescription: A blockchain-based game featuring collectible creatures.",
+  "Project: Livepeer\nDescription: A decentralized video streaming infrastructure network.",
+  "Project: Arweave\nDescription: A decentralized storage network designed for permanent data storage.",
+];
+
+export const W3_SCENARIOS: string[] = [
+  "A wallet app you use just added support for hardware wallet integration. Announce this update to the community.",
+  "A decentralized exchange you follow just reduced its average trading fees. Share the news with the community.",
+  "A project is hosting a community AMA (Ask Me Anything) session next week. Announce it and invite the community.",
+  "A protocol just completed a third-party security audit with no critical issues found. Announce this to reassure the community.",
+  "A community has reached a milestone of 10,000 members. Write an announcement celebrating this.",
+  "A project is launching a new documentation site to help beginners get started. Announce it.",
+  "A protocol just added support for a new blockchain network. Share this update.",
+  "A community is introducing a new set of channel guidelines to keep discussions constructive. Announce this change.",
+  "A project's mobile app just became available on a major app store. Announce the launch.",
+  "A protocol is temporarily pausing deposits for scheduled maintenance. Write an announcement informing users.",
+  "A community is launching a monthly newsletter to share project updates. Announce the first issue.",
+  "A project just onboarded a new core contributor to help with community support. Introduce them to the community.",
+  "A protocol's governance forum just opened voting on a new proposal. Announce it and encourage participation.",
+  "A project is hosting its first in-person community meetup. Announce the event and invite people to find out more.",
+  "A protocol just published its quarterly transparency report. Announce where the community can find it.",
+  "A community bug-bounty program is now accepting submissions. Announce the launch and invite participants.",
+  "A project's support team is expanding its hours to cover more time zones. Announce this improvement.",
+  "A protocol added a new feature that lets users track their transaction history more easily. Announce it.",
+  "A community is running a feedback survey to shape the project's next roadmap. Announce it and encourage responses.",
+  "A project just reached a milestone of one year since launch. Write a brief announcement marking the anniversary.",
+];
+
+export const W4_SOURCE_TEXTS: string[] = [
+  "Blockchain networks rely on a consensus mechanism to agree on the state of the ledger without a central authority. The two most common approaches are proof-of-work and proof-of-stake. In proof-of-work, participants called miners compete to solve a computationally difficult puzzle, and the first to solve it earns the right to add the next block, receiving a reward in return. This process requires significant computing power and electricity, which is one of the most common criticisms of proof-of-work systems. Proof-of-stake takes a different approach: instead of competing with computing power, participants called validators lock up (or 'stake') a quantity of the network's native token as collateral. Validators are then selected to propose and confirm new blocks based on factors like the size of their stake, sometimes combined with an element of randomness. If a validator acts dishonestly or fails to perform its duties correctly, a portion of its staked tokens can be forfeited, a penalty known as slashing. Proof-of-stake systems generally consume far less energy than proof-of-work systems, since they do not require large-scale computational competition. Both mechanisms aim to make it costly to attack the network or rewrite its history, just through different economic incentives -- computing power in one case, and staked capital at risk in the other.",
+  "A crypto wallet does not actually store cryptocurrency the way a physical wallet stores cash. Instead, it stores the cryptographic keys that prove ownership of assets recorded on a blockchain. Every wallet has a private key, which must be kept secret, and a corresponding public key or address, which can be shared freely to receive funds. Wallets are broadly divided into two categories: hot wallets and cold wallets. Hot wallets are connected to the internet, such as a mobile app or browser extension, making them convenient for frequent transactions but more exposed to online threats like phishing or malware. Cold wallets, such as hardware devices or even paper printouts of a key, are kept offline, which makes them significantly harder for an attacker to access remotely, at the cost of being less convenient for everyday use. Most wallets are generated from a seed phrase, a sequence of words that can regenerate all of the wallet's keys if the original device is lost. Anyone who obtains this seed phrase can fully control the associated funds, which is why it is generally recommended to store it offline and never share it with anyone.",
+  "A token bridge is infrastructure that allows assets or data to move between two otherwise incompatible blockchain networks. Because most blockchains operate independently and cannot natively read each other's data, a bridge typically works by locking or burning a token on the source chain, then minting an equivalent, 'wrapped' representation of that token on the destination chain. When a user wants to move their assets back, the process is reversed: the wrapped token is burned, and the original token is unlocked on the source chain. Bridges vary widely in how they verify that a lock or burn has genuinely occurred, ranging from trusted, centralized validators to more decentralized systems involving multiple independent parties. Because bridges often hold large amounts of locked value on the source chain, they have historically been one of the most common targets for exploits in the crypto industry; a bug in a bridge's verification logic can allow an attacker to mint wrapped tokens without ever having locked the corresponding original asset.",
+  "Automated market makers, or AMMs, are a common mechanism used by decentralized exchanges to let users trade tokens without relying on a traditional order book matched between buyers and sellers. Instead, trades are executed against a shared pool of two (or sometimes more) tokens, supplied by users known as liquidity providers. The relative price of the tokens in the pool is determined by a mathematical formula based on the ratio of the two token balances, which adjusts automatically as trades occur. Liquidity providers earn a share of the trading fees generated by the pool, proportional to how much they've contributed. However, they also face a risk called impermanent loss, which happens when the price ratio of the two tokens changes after they deposit funds; if they withdraw while that ratio differs from when they deposited, they may end up with less value than if they had simply held the tokens outside the pool. This loss is only 'realized' upon withdrawal -- if prices return to their original ratio before the provider withdraws, the loss disappears.",
+  "Smart contracts can only access data that already exists on their own blockchain, which creates a challenge for applications that need real-world information, such as asset prices, weather conditions, or sports results. Oracles solve this problem by acting as a bridge between on-chain smart contracts and off-chain data sources. A basic oracle setup might involve a single service that fetches external data and submits it to the blockchain for a contract to use. However, relying on a single source creates a central point of failure: if that source is compromised or reports incorrect data, any contract depending on it could behave incorrectly, potentially resulting in unfair liquidations or mispriced trades. To reduce this risk, many modern oracle networks aggregate data from multiple independent sources and rely on a decentralized set of node operators, so that no single party can unilaterally manipulate the data being reported. This is especially important for DeFi lending protocols, where accurate price data determines whether a loan remains adequately collateralized.",
+  "Maximal extractable value, commonly abbreviated as MEV, refers to the additional profit that can be earned by controlling the order, inclusion, or exclusion of transactions within a block. Since whoever produces a block has some discretion over how transactions are arranged, opportunities arise to insert profitable transactions around others. A common example is a 'sandwich attack,' where a bot detects a large pending trade, places its own buy order immediately before it to push the price up, lets the original trade execute at the worse price, and then sells immediately after to capture the difference. MEV isn't unique to any single blockchain design; it can occur under both proof-of-work and proof-of-stake systems, since in both cases someone ultimately decides how transactions within a block are ordered. Various mitigations have been developed, including private transaction relays that hide pending trades from public view until they're included in a block, and specialized protocols designed to make transaction ordering fairer for ordinary users.",
+  "A rollup is a Layer 2 scaling approach that moves most transaction execution off the main blockchain while still relying on that main chain for security and data availability. Instead of processing every individual transaction directly on the main chain, a rollup batches many transactions together, executes them off-chain, and then submits a compressed summary back to the main chain. There are two major categories of rollups. Optimistic rollups assume that submitted transaction batches are valid by default, but allow a challenge period during which anyone can submit proof that a batch was processed incorrectly, triggering a rollback if fraud is proven. Zero-knowledge rollups instead generate a cryptographic proof, verified directly on the main chain, that guarantees the batch was executed correctly before it is ever finalized, without needing a challenge period at all. Both approaches aim to significantly increase the number of transactions a network can process while keeping fees lower than executing every transaction directly on the main chain.",
+  "Ethereum's fee mechanism changed significantly with an upgrade commonly referred to as EIP-1559. Before this upgrade, users submitted a single bid, called gas price, and transactions with higher bids were generally prioritized by whoever produced the next block, leading to unpredictable and often inefstsicient fee markets during periods of high demand. After the upgrade, each block has a 'base fee' that is calculated automatically based on how full the previous block was, and this portion of the fee is burned rather than paid to the block producer. Users can also include an optional 'tip' on top of the base fee to prioritize their transaction during periods of congestion. Because the base fee is burned, this mechanism can, under certain network conditions, reduce the overall net issuance of new tokens, since burned fees can offset newly issued rewards. The goal of the change was to make fees more predictable for users rather than to fundamentally alter the underlying computational capacity of the network.",
+  "A blockchain fork occurs when a network's rules change in a way that creates a divergence in the chain's history or ongoing validation logic. A 'soft fork' is a backward-compatible change, meaning that nodes running the older software can still recognize new blocks as valid, even if they don't take advantage of the new rules themselves. A 'hard fork,' by contrast, introduces changes that are not backward-compatible: nodes running old software will reject blocks that follow the new rules, and if enough of the network doesn't upgrade, this can permanently split the blockchain into two separate, independently operating networks, each with its own token. Hard forks can happen for many reasons, including fixing a serious vulnerability, changing core protocol parameters, or resolving fundamental disagreements within a community about the project's future direction. Both existing chains after a split typically share the same transaction history up to the point of the fork, after which they diverge entirely.",
+  "A stablecoin is a type of cryptocurrency designed to maintain a relatively constant value, usually pegged to a real-world asset such as the US dollar. There are several common approaches to maintaining this peg. Fiat-collateralized stablecoins are backed by reserves of the referenced currency (or equivalent low-risk assets) held by an issuing entity, redeemable roughly one-to-one. Crypto-collateralized stablecoins instead use other cryptocurrencies as backing, typically over-collateralized to absorb price volatility in the underlying collateral. Algorithmic stablecoins attempt to maintain their peg through automated supply adjustments and market incentives rather than holding direct collateral, an approach that has historically proven more fragile, with several notable examples losing their peg entirely during periods of market stress. Because a stablecoin's peg depends on the mechanism and reserves backing it, the reliability of different stablecoins can vary considerably, and a coin's stability during calm markets doesn't necessarily guarantee it will hold its peg during extreme conditions.",
+  "A multisignature, or 'multisig,' wallet requires more than one private key to authorize a transaction, rather than relying on a single key as with a standard wallet. A common configuration might require any 2 of 3 designated key holders to approve a transaction before it can be executed, though the exact threshold and number of keys can be customized. This structure is frequently used by organizations, DAOs, and teams that want to avoid a single individual having sole control over shared funds, since no one person can unilaterally move assets. It also provides some resilience against the loss of a single key: if one key holder loses access, the remaining key holders can often still meet the required threshold to approve transactions, as long as enough of the total key holders remain available and cooperative. Multisig wallets are typically implemented as smart contracts on account-based blockchains, which allows for flexible rules beyond simple key counting, such as time delays on large transactions.",
+  "Staking is the process of locking up a quantity of a proof-of-stake blockchain's native token to help support the network's operation, typically by participating in transaction validation. In exchange for staking, participants usually earn rewards, often paid in the same token they staked, funded either by new token issuance, transaction fees, or some combination of both. Some networks allow anyone to run their own validator directly if they meet minimum staking requirements, while others make direct validation impractical for most individual users due to high minimum stake amounts or technical requirements, leading many people to delegate their tokens to a third-party validator instead. Delegating introduces a degree of trust in the chosen validator's reliability and honesty, since poor validator performance or malicious behavior can sometimes result in penalties that are shared with delegators. Staked tokens are also often subject to an 'unbonding period' after a user requests to withdraw, during which the tokens remain locked and do not earn further rewards.",
+  "A 'rug pull' is a type of scam in the crypto industry where the creators of a project abruptly abandon it and abscond with investor funds, typically after building up hype and encouraging people to buy into a token or provide liquidity. One common method involves a project's creators retaining a large portion of a token's supply or control over a liquidity pool, then selling their holdings or draining the pool all at once, causing the token's value to collapse. Because many tokens can be created and listed with minimal barriers on decentralized exchanges, rug pulls have historically been more common in less-regulated or newly launched projects than in longer-established ones. Some warning signs commonly associated with a higher risk of a rug pull include anonymous teams with no verifiable track record, a token supply heavily concentrated among a small number of wallets, and liquidity that has not been locked or time-restricted in any way, though the presence or absence of these signs alone is not a guaranteed predictor of a project's legitimacy.",
+  "Centralized cryptocurrency exchanges, unlike most decentralized protocols, are generally required to comply with know-your-customer (KYC) and anti-money-laundering (AML) regulations in the jurisdictions where they operate. KYC typically requires users to verify their identity, often by submitting a government-issued ID and sometimes proof of address, before they can deposit, withdraw, or trade beyond certain limits. AML processes involve monitoring transactions for patterns that might indicate illicit activity, such as unusually large or rapidly repeated transfers, and reporting suspicious activity to relevant authorities where legally required. These requirements exist in large part because exchanges act as an on-ramp and off-ramp between traditional financial systems and crypto assets, making them a natural point of regulatory oversight. Requirements vary significantly by jurisdiction, and a given exchange's specific obligations depend on where it is legally based and which markets it serves, which is one reason the same exchange may offer different features or impose different limits depending on a user's location.",
+  "A governance token grants its holder the ability to participate in decisions about how a protocol or platform is run, typically by voting on formal proposals. Common examples of what governance votes might cover include adjusting a protocol's fee structure, allocating funds from a shared treasury, upgrading smart contract code, or adding support for new assets or features. Voting power is usually proportional to the number of governance tokens a holder controls, sometimes with additional mechanisms like time-locking tokens to increase voting weight. While governance tokens are intended to distribute decision-making authority across a community rather than concentrating it in a single team, in practice voting power can become concentrated among early investors, founding teams, or large holders, sometimes called 'whales,' which can limit how decentralized the actual decision-making process is in practice. Some protocols have introduced delegation systems, allowing smaller holders to assign their voting power to a trusted representative rather than voting on every proposal individually.",
+  "An airdrop is a distribution of free tokens to a group of wallet addresses, often used by new projects as a way to bootstrap an initial user base or reward early participants. Eligibility criteria vary widely: some airdrops are distributed to anyone who previously interacted with a related protocol or held a specific token, while others require users to complete certain tasks, such as using a particular application before a set date. Airdrops are also sometimes used to decentralize governance token distribution more broadly, rather than only allocating tokens to a project's founding team and investors. Because free token distributions can attract opportunistic behavior, some projects have implemented anti-farming measures designed to exclude wallets that appear to have interacted with a protocol solely to qualify for a future airdrop rather than for genuine use. Receiving an airdropped token does not guarantee it will hold significant value, since value ultimately depends on market demand for the token once it becomes tradable.",
+  "Layer 2 refers to a category of scaling solutions built on top of an existing 'Layer 1' blockchain, aiming to increase transaction throughput and reduce fees without requiring changes to the underlying Layer 1 protocol itself. Rather than processing every transaction directly on the base layer, Layer 2 solutions handle transaction execution elsewhere, then periodically settle a summary or proof of that activity back to the Layer 1 chain, which continues to serve as the ultimate source of security and finality. Common Layer 2 approaches include rollups, which batch and compress many transactions before submitting them to the base layer, and state channels, which allow participants to conduct many transactions directly between themselves and only settle a final result on-chain. Layer 2 solutions generally aim to inherit a meaningful degree of the base layer's security guarantees, though the exact level of security can vary depending on the specific design and how much trust is placed in any intermediate parties involved in the process.",
+  "A validator on a proof-of-stake blockchain is a network participant responsible for proposing new blocks and verifying transactions submitted by other users. To become a validator, a participant typically must lock up, or stake, a minimum quantity of the network's native token as collateral, which can be reduced through a penalty called slashing if the validator behaves dishonestly or fails to perform its duties reliably, such as by going offline for extended periods. Validators are usually selected to propose blocks through a combination of factors that can include the size of their stake and an element of randomness, intended to prevent any single validator from being chosen too predictably. In exchange for their participation, validators typically earn rewards, often funded by a combination of newly issued tokens and transaction fees paid by users. Because running a validator directly can require meeting minimum stake thresholds and maintaining reliable infrastructure, many token holders instead delegate their stake to an existing validator rather than operating one themselves.",
+  "A block explorer is a web-based tool that lets anyone view the public data recorded on a blockchain, such as individual transactions, block contents, and wallet balances. Since most blockchains are designed to be transparent by default, block explorers make this otherwise raw data more accessible by presenting it in a searchable, human-readable format. A typical block explorer allows a user to look up a specific transaction using its unique transaction hash and see details such as its status, the addresses involved, the amount transferred, and the fee paid. Block explorers are also commonly used to verify that a transaction has received enough confirmations to be considered final, and to review a smart contract's publicly verified source code, when available. Because the underlying data comes directly from the blockchain itself, block explorers generally reflect the same information regardless of which specific website or tool is used to view it, though different explorers may vary in how much additional detail or analysis they layer on top of the raw data.",
+  "A digital signature is a cryptographic mechanism that allows someone to prove they authorized a specific piece of data, such as a transaction, without revealing their private key. When a transaction is signed, the sender's wallet software uses their private key to generate a unique signature tied specifically to that transaction's exact contents. Anyone can then use the sender's public key to verify that the signature is valid and that the transaction has not been altered since it was signed, without ever needing access to the private key itself. This is what allows blockchains to confirm that only the legitimate owner of an address authorized a given transaction, since producing a valid signature without the correct private key is computationally infeasible with current technology. If even a single detail of a signed transaction is changed after signing, such as the amount or recipient, the original signature will no longer be valid, which is part of what makes signed transactions tamper-evident.",
+];
+
+export const R5_ITEMS: string[] = [
+  "Project: Uniswap\nDescription: A decentralized exchange protocol that lets users swap tokens directly from their wallets using automated liquidity pools.",
+  "Project: Aave\nDescription: A protocol that lets users lend and borrow crypto assets, earning or paying interest based on market rates.",
+  "Project: Axie Infinity\nDescription: A blockchain-based game where players collect, breed, and battle creatures, some of which are NFTs.",
+  "Project: OpenSea\nDescription: A marketplace where users can buy, sell, and discover NFTs across multiple blockchains.",
+  "Project: The Graph\nDescription: A protocol for indexing and querying blockchain data, used by many decentralized applications.",
+  "Project: Filecoin\nDescription: A decentralized storage network where users can pay to store and retrieve data across a distributed set of providers.",
+  "Project: MakerDAO\nDescription: A decentralized organization that governs the issuance of the DAI stablecoin through community voting.",
+  "Project: Safe (formerly Gnosis Safe)\nDescription: A smart-contract wallet that lets multiple people jointly control shared crypto funds.",
+  "Project: Ethereum Name Service (ENS)\nDescription: A naming system that lets users register human-readable names that map to wallet addresses.",
+  "Project: Worldcoin\nDescription: A project that provides a digital identity and proof-of-personhood system using biometric hardware.",
+  "Project: Curve Finance\nDescription: A decentralized exchange optimized for trading similarly priced assets like stablecoins with low slippage.",
+  "Project: Compound\nDescription: A protocol that lets users earn interest by supplying crypto assets to a shared lending pool.",
+  "Project: Decentraland\nDescription: A virtual world built on blockchain where users can buy virtual land and create experiences.",
+  "Project: The Sandbox\nDescription: A virtual gaming world where players can build, own, and monetize gaming experiences using NFTs.",
+  "Project: Arweave\nDescription: A decentralized storage network designed to store data permanently in exchange for a one-time fee.",
+  "Project: Chainlink\nDescription: A decentralized oracle network that supplies real-world data to smart contracts on multiple blockchains.",
+  "Project: Optimism Collective\nDescription: A community and governance body that funds public goods and oversees the Optimism network.",
+  "Project: Arbitrum DAO\nDescription: The governance body responsible for decisions about the Arbitrum network's development and treasury.",
+  "Project: Lens Protocol\nDescription: A social-graph protocol that lets users own their social media identity and content as on-chain data.",
+  "Project: Farcaster\nDescription: A decentralized social-networking protocol where users control their own identity and posts.",
+];
+
+export const A2_TEXTS: string[] = [
+  "Switched to this wallet app last month and it's been smooth ever since — transactions confirm fast and the interface is clean.",
+  "Really impressed with how easy it was to bridge my tokens over. Took less than five minutes and the fees were lower than expected.",
+  "The customer support team resolved my issue within an hour. Genuinely didn't expect that level of responsiveness.",
+  "Staking through this platform has been simple and the rewards show up exactly when promised.",
+  "Love that the app finally added dark mode and better transaction history. Small change but makes a big difference.",
+  "First time using a DEX and honestly the experience was way less intimidating than I expected.",
+  "The new update fixed the lag I was having with wallet connections. Works great now.",
+  "Gas fees were way higher than the estimate shown before I confirmed the transaction. Pretty frustrating.",
+  "App crashed twice while I was trying to approve a transaction. Lost some time and had to start over.",
+  "Support hasn't responded to my ticket in three days. Not a great experience when funds are involved.",
+  "The swap rate was noticeably worse than what other platforms were offering at the same time.",
+  "Withdrawal has been stuck as pending for over 24 hours now with no update from the team.",
+  "Interface redesign made it harder to find basic settings. Preferred the old layout honestly.",
+  "Got hit with an unexpected fee that wasn't clearly disclosed before I confirmed the transfer.",
+  "Used the platform to move some tokens between wallets today. Process took about ten minutes start to finish.",
+  "Noticed the fee structure changed recently. Still figuring out how it compares to before.",
+  "The app requires a manual refresh to see updated balances, which is a bit different from what I'm used to.",
+  "Tried out the new staking feature. Rewards are calculated daily and paid out weekly.",
+  "Documentation covers most of the basics but doesn't go into much detail on advanced settings.",
+  "Transaction went through without issues, just took longer than the estimated confirmation time.",
+];
+
+export const A5_MESSAGES: string[] = [
+  "I was charged twice for the same transaction fee this week. Can someone check my account?",
+  "My subscription renewed but I thought I had cancelled it last month. Can I get a refund?",
+  "The fee I was charged doesn't match what was shown in the confirmation screen. Please explain the difference.",
+  "I'd like an itemized breakdown of the fees on my last three transactions.",
+  "The app keeps crashing whenever I try to connect my wallet. Happens every time on the latest update.",
+  "My balance isn't updating even though the transaction shows as confirmed on the block explorer.",
+  "I can't get past the loading screen when I try to open the swap page.",
+  "The QR code scanner isn't recognizing any codes since the last app update.",
+  "How do I add a new network to my wallet? I don't see the option anywhere.",
+  "What's the process for moving funds from my exchange account to a personal wallet?",
+  "Can you walk me through how to set up recurring transfers?",
+  "How do I export my transaction history for tax purposes?",
+  "This is the third time this month the platform has been down during peak trading hours.",
+  "I've contacted support twice about the same issue and haven't gotten a real answer either time.",
+  "The recent changes made the app much harder to use. Please consider reverting some of them.",
+  "Waiting over a week for a response to a simple account question is not acceptable.",
+  "It would be great if the app supported biometric login instead of just a PIN.",
+  "Could you add a way to schedule transactions in advance?",
+  "Please consider adding multi-language support for the interface.",
+  "A dark mode option would be really helpful for night-time use.",
+];
+
+// Ten of these paragraphs are factually clean; ten contain a deliberately
+// planted, plausible-sounding inaccuracy for A4's worker to catch. Which
+// ones are which is intentionally not recorded anywhere -- neither in this
+// file nor anywhere worker-facing -- since revealing it would defeat the
+// task.
+export const A4_PARAGRAPHS: string[] = [
+  "Ethereum's transition from proof-of-work to proof-of-stake, known as the Merge, changed how new blocks are validated. Instead of miners competing to solve computational puzzles, validators are chosen to propose and attest to blocks based on the amount of ETH they have staked. This shift significantly reduced the network's energy consumption compared to the previous proof-of-work model. Validators who act maliciously or fail to perform their duties correctly can have a portion of their staked ETH slashed as a penalty. The change did not alter Ethereum's transaction throughput directly, since that depends more on block size and Layer 2 scaling solutions than on the consensus mechanism itself.",
+  "Ethereum's transition to proof-of-stake immediately increased the network's base transaction throughput by roughly ten times, allowing far more transactions per second than before. Validators now compete by solving cryptographic puzzles similar to the old mining process, and the fastest validator to solve the puzzle earns the right to propose the next block. This makes the network more energy efficient while also dramatically increasing raw transaction capacity without the need for any additional scaling layers.",
+  "A hardware wallet is a physical device designed to store a user's private keys offline, away from internet-connected devices. Because the keys never leave the device, hardware wallets are generally considered more resistant to remote hacking attempts than software wallets that store keys on a computer or phone. To approve a transaction, the user typically connects the device to a computer or phone and physically confirms the action on the device itself. Losing the device does not necessarily mean losing access to funds, since most hardware wallets can be restored using a seed phrase generated during setup.",
+  "A hardware wallet stores a user's private keys offline for added security. If the device is lost or damaged, the funds are permanently inaccessible, since hardware wallets do not use any backup or recovery mechanism. This makes them significantly riskier than software wallets, which typically offer built-in account recovery through the wallet provider's servers.",
+  "A token bridge allows assets to move between different blockchain networks that would otherwise be incompatible. Since most blockchains cannot natively read or verify data from another chain, bridges typically work by locking or burning tokens on the source chain and minting an equivalent representation on the destination chain. Some bridges rely on a trusted set of validators or a multisig to attest that the lock or burn actually happened, while others use more decentralized verification methods. Bridges have historically been a common target for exploits, since they often hold large amounts of locked value.",
+  "A token bridge works by directly transferring the original token from one blockchain to another, moving the exact same underlying asset across chains without creating any new tokens. Because the same token literally exists on both chains simultaneously after a bridge transaction, there is no risk of the wrapped or bridged asset losing its peg to the original token's value.",
+  "Impermanent loss is a risk faced by liquidity providers in automated market maker (AMM) pools. It occurs when the price ratio of the two tokens in a pool changes compared to when they were deposited. The loss is called 'impermanent' because it only becomes realized if the liquidity provider withdraws their funds while the price ratio is different from the deposit ratio; if prices return to their original ratio, the loss disappears. Liquidity providers are typically compensated with a share of trading fees generated by the pool, which can offset some or all of the impermanent loss.",
+  "Impermanent loss is a permanent reduction in a liquidity provider's holdings that occurs the moment token prices in a pool change, and it cannot be recovered even if prices later return to their original level. Liquidity providers have no way to offset this loss, since trading fees earned from the pool are kept separately and never applied against impermanent loss.",
+  "Blockchain oracles are services that supply external, real-world data to smart contracts, which otherwise cannot access information outside their own blockchain. Common use cases include supplying price feeds for DeFi lending protocols, weather data for insurance contracts, or sports results for prediction markets. Because smart contracts execute automatically based on the data they receive, an inaccurate or manipulated oracle feed can lead to incorrect contract outcomes. To reduce this risk, many oracle networks aggregate data from multiple independent sources rather than relying on a single data provider.",
+  "Blockchain oracles are optional infrastructure mainly used for entertainment applications like prediction markets, since core DeFi functions such as lending and trading are calculated entirely using data already stored on-chain and never require any external price information. This makes DeFi protocols immune to the risks associated with inaccurate external data feeds.",
+  "Maximal extractable value (MEV) refers to the profit that can be earned by reordering, inserting, or excluding transactions within a block. This can happen through strategies such as front-running a large trade or arbitraging price differences that appear briefly across decentralized exchanges. MEV is not inherently malicious, but it can result in worse execution prices for ordinary users, particularly through a strategy known as a sandwich attack. Various solutions, including private transaction relays, have been developed to reduce the negative effects of MEV on regular users.",
+  "Maximal extractable value (MEV) only exists on proof-of-work blockchains, since it requires specialized mining hardware to reorder transactions within a block. Proof-of-stake networks are structurally immune to MEV because validators are chosen randomly and have no ability to influence which transactions are included in a block or in what order.",
+  "Account abstraction refers to a set of approaches that let a blockchain wallet behave more like a programmable smart contract rather than a simple key pair. This can enable features such as social recovery, where a lost wallet can be restored with the help of trusted contacts instead of a single seed phrase, or the ability to pay transaction fees in tokens other than the network's native currency. This is intended to make wallets more flexible and user-friendly, particularly for newcomers unfamiliar with managing a single private key.",
+  "Account abstraction completely eliminates the need for private keys in any form, replacing them entirely with a username-and-password login system similar to a typical website. Because there is no private key involved at any stage, account-abstracted wallets cannot be accessed or drained even if a user's device is compromised.",
+  "A non-fungible token (NFT) is a unique digital record on a blockchain that represents ownership of a specific item, such as digital art, a collectible, or an in-game asset. Unlike fungible tokens, where each unit is interchangeable with another, each NFT typically has a unique identifier that distinguishes it from every other token. The NFT itself usually points to metadata describing the asset, which may be stored on-chain or on a separate storage system. Owning an NFT generally means owning a verifiable, transferable record on the blockchain.",
+  "A non-fungible token (NFT) always stores the complete underlying digital file, such as the full image or video, directly within the blockchain itself, making external storage systems completely unnecessary in every case. This guarantees that every NFT's associated artwork is permanently and directly embedded in the blockchain's own data with no exceptions.",
+  "A decentralized autonomous organization (DAO) is a group coordinated through rules encoded in smart contracts rather than a traditional centralized management structure. Members typically hold governance tokens that grant voting rights on proposals, such as how to allocate treasury funds. Votes are often recorded on-chain or through an off-chain signaling system, depending on the DAO's specific setup. In practice, voting power can become concentrated among a small number of large token holders, which can affect how decentralized the decision-making process actually is.",
+  "A decentralized autonomous organization (DAO) is fully and uniformly recognized as a formal legal entity in every country in the world, with identical legal protections and tax treatment everywhere it operates. This universal legal recognition means DAO members face no jurisdictional differences in liability or regulation no matter where they are located.",
+  "A rollup is a Layer 2 scaling technique that executes transactions outside the main blockchain (off-chain) while still posting transaction data back to the main chain for security. Optimistic rollups assume transactions are valid by default and allow a window of time during which anyone can submit a fraud proof if they detect an invalid transaction. Zero-knowledge rollups instead generate a cryptographic proof that transactions were processed correctly, verified on the main chain before finalization. Both approaches aim to increase throughput and lower fees while still inheriting a meaningful degree of the main chain's security.",
+  "A rollup processes and finalizes all of its transactions completely independently of the main blockchain, with no data or proofs ever posted back to the main chain at any point. This means rollups provide exactly the same security guarantees as the main chain by design, regardless of how the rollup's own internal validators behave.",
+];
+
+export const S1_QUESTIONS: string[] = [
+  "Why is my transaction stuck as pending?",
+  "How long does it usually take for a transaction to confirm?",
+  "What happens if I send tokens to the wrong address?",
+  "Do I need to keep my seed phrase somewhere other than my phone?",
+  "Why did my transaction fail even though I had enough balance?",
+  "What's the difference between a hot wallet and a cold wallet?",
+  "Can I recover my account if I lose access to my wallet?",
+  "Why is the gas fee different every time I make a transaction?",
+  "Is it safe to connect my wallet to a new website?",
+  "What does it mean to 'approve' a token before swapping it?",
+  "How do I know if a transaction actually went through?",
+  "What's the difference between a testnet and the real network?",
+  "Why do I need to pay a fee just to move my own tokens?",
+  "Can someone else access my funds if they know my wallet address?",
+  "What should I do if I think I sent funds to a scam address?",
+  "How do I add a custom token to my wallet if it's not showing up?",
+  "What's the difference between a public key and a wallet address?",
+  "Why does the app ask me to sign a message instead of just logging in?",
+  "Is there a way to cancel a pending transaction?",
+  "What happens to my funds if I lose access to my email but still have my wallet?",
+];
+
+export const S4_MESSAGES: string[] = [
+  "I think the onboarding flow could be clearer for new users — maybe adding a short walkthrough would help a lot.",
+  "Really solid update overall. One suggestion: it would help to add tooltips explaining what each setting does.",
+  "The recent changes are a step in the right direction. Would love to see the fee breakdown made a bit more transparent though.",
+  "Appreciate the effort on this release. A changelog with more detail would make it easier to track what changed.",
+  "This update is a joke. Whoever approved this clearly doesn't use the product themselves.",
+  "Absolutely done with this team ignoring every piece of feedback the community gives them.",
+  "Another broken release. At this point it feels like nobody is actually testing anything before shipping.",
+  "Stop making changes nobody asked for and actually listen to the people using this thing.",
+  "Wait, did something change with how fees are calculated? My last transaction cost way more than I expected.",
+  "I'm not sure I understand what this new setting actually does. Can someone explain it?",
+  "Is the migration supposed to happen automatically, or do I need to do something on my end?",
+  "Not sure if this is a bug or if I'm just missing something, but my balance looks off.",
+  "This is exactly the feature I've been waiting for! Can't wait to try it out.",
+  "Huge update! The team really outdid themselves this time.",
+  "Just tried the new interface and it's so much smoother already. Great work!",
+  "So glad this finally shipped. Been looking forward to this for weeks!",
+  "Noticed the update went live today. Haven't had a chance to test it yet.",
+  "Saw the announcement about the new feature. Will check it out when I get a chance.",
+  "Read through the changelog. Looks like mostly small fixes this time around.",
+  "Update installed without any issues on my end.",
+];

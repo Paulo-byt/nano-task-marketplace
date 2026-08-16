@@ -5,8 +5,14 @@ import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import {
   createApplication,
   getMyTasks,
+  approveApplication,
   DuplicateApplicationError,
+  ApplicationNotApprovableError,
 } from "@/services/applications/applicationsService";
+import {
+  getTaskTemplateId,
+  replenishTemplateIfNeeded,
+} from "@/services/marketplace/taskTemplatesService";
 import { createApplicationSubmittedNotification } from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
@@ -107,8 +113,9 @@ export async function POST(request: Request) {
     );
   }
 
+  let application;
   try {
-    await createApplication(taskId, sessionUser.id);
+    application = await createApplication(taskId, sessionUser.id);
   } catch (err) {
     if (err instanceof DuplicateApplicationError) {
       return NextResponse.json(
@@ -136,5 +143,61 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ status: "created" }, { status: 201 });
+  // M4: platform-generated task instances have no human creator with a
+  // session to click "approve" -- tasks.templateId (set only by
+  // generateTaskInstance) is the existing, schema-documented signal that
+  // this is one. getTaskTemplateId returns null for every ordinary,
+  // creator-posted task, so this block is a pure no-op for the entire
+  // existing marketplace: its response stays byte-identical to before.
+  //
+  // Auto-approval reuses approveApplication exactly as the human-triggered
+  // approve route already does -- same atomic task-closing UPDATE, same
+  // stress-tested concurrency guarantee (see that function's own doc
+  // comment: 0/25 invalid combinations across concurrent approval
+  // attempts for one task). Two applicants racing for the same platform
+  // task is structurally the same race as two applicants racing for a
+  // human creator's approval; nothing new needed to make it safe. The
+  // application row this route just created is never deleted or altered
+  // if this loses that race -- it stays "applied" on the now-closed task,
+  // the exact same state an ordinary task's un-approved applicants are
+  // already left in today.
+  const templateId = await getTaskTemplateId(taskId);
+  if (!templateId) {
+    return NextResponse.json({ status: "created" }, { status: 201 });
+  }
+
+  const response: Record<string, unknown> = {
+    status: "created",
+    applicationId: application.id,
+  };
+
+  try {
+    const result = await approveApplication(application.id, taskId, task.rewardUsdc);
+    response.status = "approved";
+    response.payoutId = result.payoutId;
+
+    try {
+      await replenishTemplateIfNeeded(templateId, taskId);
+    } catch (err) {
+      log.error("apply_auto_approval_replenishment_failed", {
+        applicationId: application.id,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } catch (err) {
+    if (err instanceof ApplicationNotApprovableError) {
+      response.autoApprovalNote =
+        "This task was already claimed by another applicant.";
+    } else {
+      log.error("apply_auto_approval_failed", {
+        applicationId: application.id,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+      response.autoApprovalNote = "Automatic approval could not be completed.";
+    }
+  }
+
+  return NextResponse.json(response, { status: 201 });
 }

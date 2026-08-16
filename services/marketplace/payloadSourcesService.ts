@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   applications,
@@ -271,4 +271,261 @@ export async function releasePayloadItemForCancelledTask(
     .returning({ id: payloadItems.id });
 
   return Boolean(released);
+}
+
+// ---------------------------------------------------------------------------
+// Supply-chain: automatic payload replenishment. No public route calls this
+// yet -- it exists purely as an internal primitive, triggered best-effort by
+// replenishTemplateIfNeeded (taskTemplatesService.ts) at the exact point
+// generateTaskInstance already reports payload_exhausted.
+// ---------------------------------------------------------------------------
+
+/**
+ * Trigger point: replenishPayloadSupplyIfNeeded is only ever called once a
+ * template has already hit payload_exhausted, so "available" is already
+ * effectively zero at that moment -- this constant exists for clarity, and
+ * for any future proactive (non-exhaustion-triggered) caller, not because
+ * the current single call site needs a nonzero threshold to do anything.
+ */
+export const PAYLOAD_LOW_WATER_MARK = 5;
+
+/**
+ * Matches DEFAULT_TARGET_AVAILABLE (taskTemplatesService.ts) -- top up
+ * toward the same steady-state figure task-instance replenishment already
+ * targets, not a separately-invented number.
+ */
+export const PAYLOAD_REPLENISH_TARGET = 20;
+
+/**
+ * Hard ceiling, independent of the target above -- a defensive backstop
+ * against ever growing a source's available-item count unboundedly, even
+ * under a bug or an unexpected future caller. Never expected to bind in
+ * normal operation: it only matters if availableBefore is somehow already
+ * above PAYLOAD_REPLENISH_TARGET when this runs, which the exhaustion-only
+ * trigger point in use today never produces.
+ */
+export const PAYLOAD_MAX_AVAILABLE = 50;
+
+// Small and bounded on purpose -- if the AI provider is down or out of
+// credit, the first attempt's failure will not be fixed by trying again
+// immediately, so batching stops after the first failed batch rather than
+// retrying it. This only bounds how many *batches* one replenishment
+// attempt makes (each ≤10 items, generatePayloadContent's own limit), not
+// automatic retries of a failed batch.
+const MAX_BATCH_ATTEMPTS = 3;
+
+export type PayloadReplenishOutcome =
+  | "sufficient"
+  | "at_ceiling"
+  | "no_active_source"
+  | "provider_unavailable"
+  | "no_new_content"
+  | "replenished";
+
+export interface PayloadReplenishResult {
+  outcome: PayloadReplenishOutcome;
+  added: number;
+  availableAfter: number;
+  reason?: string;
+}
+
+function normalizeForDedup(content: string): string {
+  return content.trim().toLowerCase();
+}
+
+async function countAvailable(sourceId: string): Promise<number> {
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(payloadItems)
+    .where(and(eq(payloadItems.sourceId, sourceId), eq(payloadItems.status, "available")));
+  return n;
+}
+
+/**
+ * Batches generatePayloadContent calls up to `needed` items, ≤10
+ * (generatePayloadContent's own MAX_BATCH_SIZE) per call. Stops immediately
+ * on the first failed batch rather than retrying -- a provider outage or
+ * credit exhaustion (the known current testnet state) will not resolve
+ * itself between consecutive calls a few hundred milliseconds apart, so
+ * retrying would only add latency without changing the outcome. Whatever
+ * was collected before a failure is kept, never discarded -- a partial
+ * batch is a usable result, not a failure.
+ *
+ * lib/ai/generatePayloadContent.ts (and the lib/ai/client.ts it imports) is
+ * deliberately reached only via a dynamic import here, the same lazy-import
+ * pattern this codebase already uses for lib/circle/* -- lib/ai/client.ts
+ * throws at module-load time if ANTHROPIC_API_KEY is unset, and a static
+ * import here would make this entire service module (imported throughout
+ * the payload/task-generation path) unimportable in any environment without
+ * Anthropic configured. This is the mechanism that makes "fail safely if
+ * the AI provider is unavailable" actually true rather than aspirational.
+ */
+async function generateBatchedPayloadContent(
+  templateContext: {
+    title: string;
+    description: string;
+    category: string;
+    difficulty: string;
+  },
+  needed: number
+): Promise<{ items: string[]; error?: unknown }> {
+  const { generatePayloadContent } = await import("@/lib/ai/generatePayloadContent");
+
+  const collected: string[] = [];
+  let attempts = 0;
+  let error: unknown;
+
+  while (collected.length < needed && attempts < MAX_BATCH_ATTEMPTS) {
+    attempts++;
+    const batchSize = Math.min(10, needed - collected.length);
+    try {
+      const batch = await generatePayloadContent(templateContext, { count: batchSize });
+      collected.push(...batch);
+    } catch (err) {
+      error = err;
+      break;
+    }
+  }
+
+  return { items: collected, error: collected.length === 0 ? error : undefined };
+}
+
+/**
+ * Best-effort: tops up a template's payload supply once it runs low, using
+ * the existing generatePayloadContent primitive. Never throws -- every
+ * failure mode (no active source, AI provider unavailable, nothing new
+ * after dedup) is a typed outcome the caller can log, not an exception that
+ * could turn a caller's own best-effort step into a hard failure. This
+ * mirrors replenishTemplateIfNeeded's own posture toward the routes that
+ * call it: a supply-side problem here must never surface as a 500 on an
+ * approve/cancel request that has nothing to do with payload content.
+ *
+ * The AI call itself runs with no database transaction open, matching this
+ * codebase's existing convention (reserveTemplatePool, submitCirclePayoutTransfer)
+ * of never holding a lock across network I/O. The accepted residual: two
+ * concurrent callers can both observe low supply and both call the AI
+ * provider, wasting one redundant call -- documented here rather than
+ * closed with heavier machinery, the same class of accepted, explained
+ * residual TECHNICAL_DEBT.md already carries for cancel-vs-retry and
+ * cancel-vs-approve. What is NOT accepted, and IS fully closed: duplicate
+ * payload_items rows. The final count-check-and-insert happens inside one
+ * db.transaction with the source row locked via FOR UPDATE, so whichever
+ * concurrent attempt commits first is the one whose items actually land --
+ * the second re-reads fresh state, re-dedupes against it, and re-checks
+ * remaining headroom under the same ceiling before inserting anything.
+ */
+export async function replenishPayloadSupplyIfNeeded(
+  templateId: string
+): Promise<PayloadReplenishResult> {
+  if (!UUID_RE.test(templateId)) {
+    return { outcome: "no_active_source", added: 0, availableAfter: 0 };
+  }
+
+  const [source] = await db
+    .select()
+    .from(payloadSources)
+    .where(and(eq(payloadSources.templateId, templateId), eq(payloadSources.status, "active")))
+    .orderBy(asc(payloadSources.createdAt))
+    .limit(1);
+
+  if (!source) {
+    return { outcome: "no_active_source", added: 0, availableAfter: 0 };
+  }
+
+  const availableBefore = await countAvailable(source.id);
+  if (availableBefore >= PAYLOAD_LOW_WATER_MARK) {
+    return { outcome: "sufficient", added: 0, availableAfter: availableBefore };
+  }
+
+  const needed = Math.min(
+    PAYLOAD_REPLENISH_TARGET - availableBefore,
+    PAYLOAD_MAX_AVAILABLE - availableBefore
+  );
+  if (needed <= 0) {
+    return { outcome: "at_ceiling", added: 0, availableAfter: availableBefore };
+  }
+
+  const [template] = await db
+    .select({
+      title: taskTemplates.title,
+      description: taskTemplates.description,
+      category: taskTemplates.category,
+      difficulty: taskTemplates.difficulty,
+    })
+    .from(taskTemplates)
+    .where(eq(taskTemplates.id, templateId))
+    .limit(1);
+
+  if (!template) {
+    return { outcome: "no_active_source", added: 0, availableAfter: availableBefore };
+  }
+
+  const { items: generated, error } = await generateBatchedPayloadContent(template, needed);
+
+  if (generated.length === 0) {
+    return {
+      outcome: "provider_unavailable",
+      added: 0,
+      availableAfter: availableBefore,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  return db.transaction(async (tx) => {
+    // Lock the source row first -- every concurrent replenishment attempt
+    // for this same source acquires this same lock before touching its
+    // items, which is what actually serializes them against each other.
+    await tx
+      .select({ id: payloadSources.id })
+      .from(payloadSources)
+      .where(eq(payloadSources.id, source.id))
+      .for("update");
+
+    const existingRows = await tx
+      .select({ content: payloadItems.content })
+      .from(payloadItems)
+      .where(eq(payloadItems.sourceId, source.id));
+    const seen = new Set(existingRows.map((row) => normalizeForDedup(row.content)));
+
+    const [{ n: freshAvailable }] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(payloadItems)
+      .where(and(eq(payloadItems.sourceId, source.id), eq(payloadItems.status, "available")));
+
+    const headroom = Math.min(
+      PAYLOAD_REPLENISH_TARGET - freshAvailable,
+      PAYLOAD_MAX_AVAILABLE - freshAvailable
+    );
+
+    const toInsert: string[] = [];
+    for (const item of generated) {
+      if (toInsert.length >= headroom) break;
+      const key = normalizeForDedup(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      toInsert.push(item);
+    }
+
+    if (toInsert.length === 0) {
+      return {
+        outcome: headroom <= 0 ? "at_ceiling" : ("no_new_content" as PayloadReplenishOutcome),
+        added: 0,
+        availableAfter: freshAvailable,
+      };
+    }
+
+    await tx.insert(payloadItems).values(
+      toInsert.map((content) => ({
+        sourceId: source.id,
+        templateId: source.templateId,
+        content,
+      }))
+    );
+
+    return {
+      outcome: "replenished" as PayloadReplenishOutcome,
+      added: toInsert.length,
+      availableAfter: freshAvailable + toInsert.length,
+    };
+  });
 }

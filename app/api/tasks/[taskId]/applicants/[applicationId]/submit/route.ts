@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { cookies } from "next/headers";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import { getApplicationForApproval } from "@/services/applications/applicationsService";
@@ -6,6 +6,8 @@ import {
   createSubmission,
   DuplicateSubmissionError,
 } from "@/services/submissions/submissionsService";
+import { evaluatePlatformSubmissionIfNeeded } from "@/services/marketplace/platformSubmissionEvaluationService";
+import { processPlatformPayoutIfEligible } from "@/services/marketplace/platformPayoutService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -101,6 +103,53 @@ export async function POST(
 
   try {
     const submission = await createSubmission(applicationId, content);
+
+    // M5: best-effort, synchronous -- the deterministic testnet evaluator
+    // makes no network call (no Anthropic, no other provider), so there is
+    // no reason to defer this to a background job the way an AI- or
+    // Circle-backed step would need to be. A no-op for every creator-owned
+    // task (evaluatePlatformSubmissionIfNeeded's own first check) and never
+    // allowed to turn a successful submission into an error response --
+    // the same posture every other best-effort step in this codebase
+    // already takes (replenishTemplateIfNeeded, replenishPayloadSupplyIfNeeded).
+    try {
+      const evaluation = await evaluatePlatformSubmissionIfNeeded(applicationId);
+
+      if (evaluation.status === "processed" && evaluation.decision === "ACCEPTED") {
+        // M6: a real on-chain payout can take long enough that running it
+        // inside this request would make the tasker's submit call hang on
+        // a transfer they have no reason to wait for. after() (next/server)
+        // defers the call until after the 201 response below is already
+        // sent, while -- unlike a bare fire-and-forget promise -- still
+        // guaranteeing it runs to completion. processPlatformPayoutIfEligible
+        // never throws (every failure mode is a typed result), but this
+        // catch matches the same best-effort posture as the evaluation
+        // call above in case something upstream of it still does.
+        after(async () => {
+          try {
+            const payout = await processPlatformPayoutIfEligible(applicationId);
+            if (payout.outcome !== "completed" && payout.outcome !== "not_applicable") {
+              log.error("platform_payout_not_completed", {
+                applicationId,
+                outcome: payout.outcome,
+                reason: payout.reason,
+              });
+            }
+          } catch (err) {
+            log.error("platform_payout_trigger_failed", {
+              applicationId,
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }
+        });
+      }
+    } catch (err) {
+      log.error("platform_submission_evaluation_failed", {
+        applicationId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return NextResponse.json(
       { status: "submitted", submissionId: submission.id },
       { status: 201 }

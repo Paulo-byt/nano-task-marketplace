@@ -6,13 +6,16 @@ import {
   payloadSources,
   taskTemplates,
   taskTemplateGenerationEvents,
+  templatePayloadModeEnum,
   tasks,
   users,
 } from "@/db/schema";
 import { getOrCreateUserByWallet } from "@/services/users/walletUser";
+import { replenishPayloadSupplyIfNeeded } from "@/services/marketplace/payloadSourcesService";
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
+import { log } from "@/lib/log";
 import type { Task } from "@/types/task";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -123,6 +126,11 @@ export interface CreatePlatformTemplateInput {
   difficulty: Task["difficulty"];
   estimatedTime: string;
   rewardUsdc: number;
+  // Optional, defaults to the schema's own 'self_contained' default when
+  // omitted (M3): reuses templatePayloadModeEnum (db/schema.ts) as the
+  // single source of truth for the two allowed values rather than a
+  // second, parallel string-literal union that could drift from it.
+  payloadMode?: (typeof templatePayloadModeEnum.enumValues)[number];
 }
 
 /**
@@ -147,6 +155,12 @@ export interface CreatePlatformTemplateInput {
  * null). Funding a template's pool is Phase C's job and must never be
  * reachable from template creation -- the same separation createTask
  * already enforces between creating a task and funding one.
+ *
+ * payloadMode (M3) is likewise left unset unless the caller explicitly
+ * supplies it, taking the schema's own 'self_contained' default -- the
+ * exact same optional-pass-through idiom createPayloadSource's own `kind`
+ * parameter already established in this codebase (payloadSourcesService.ts),
+ * not a new pattern.
  */
 export async function createPlatformTemplate(input: CreatePlatformTemplateInput) {
   const title = input.title.trim();
@@ -193,6 +207,7 @@ export async function createPlatformTemplate(input: CreatePlatformTemplateInput)
       difficulty: input.difficulty,
       estimatedTime,
       rewardUsdc: input.rewardUsdc.toFixed(2),
+      ...(input.payloadMode ? { payloadMode: input.payloadMode } : {}),
     })
     .returning();
 
@@ -799,10 +814,31 @@ export async function replenishTemplateIfNeeded(
     const result = await generateTaskInstance(templateId, `${triggerTaskId}:${slot}`);
     if (result.outcome === "created") {
       created++;
-    } else if (
-      result.outcome === "insufficient_capacity" ||
-      result.outcome === "payload_exhausted"
-    ) {
+    } else if (result.outcome === "insufficient_capacity") {
+      stoppedEarly = true;
+      break;
+    } else if (result.outcome === "payload_exhausted") {
+      // Best-effort, fire-and-forget -- exactly the same posture this
+      // function's own callers (approve/cancel routes) already take toward
+      // calling this whole function: a supply-side problem here must never
+      // turn this slot's own exhaustion into anything worse than what it
+      // already is. Never awaited into affecting stoppedEarly/attempted/
+      // created below -- this call's own outcome only affects payload
+      // supply for the *next* trigger, not this one, which still correctly
+      // reports payload_exhausted for the current attempt either way.
+      try {
+        const replenishment = await replenishPayloadSupplyIfNeeded(templateId);
+        log.info("payload_replenishment_attempted", {
+          templateId,
+          outcome: replenishment.outcome,
+          added: replenishment.added,
+        });
+      } catch (err) {
+        log.error("payload_replenishment_failed", {
+          templateId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
       stoppedEarly = true;
       break;
     }

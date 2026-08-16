@@ -121,4 +121,14 @@ export const RATE_LIMITS = {
   applicationAnalyzeFraudRisk: { limit: 5, windowMs: HOUR },
   aiGenerateTask: { limit: 10, windowMs: HOUR },
   authenticatedRead: { limit: 120, windowMs: MINUTE },
+  // Phase M3: platform-operator treasury actions. Kept as low as
+  // applicationPayout/applicationRetryPayout -- the same "sensitive,
+  // real-money, rarely-frequent" posture, not the higher limits given to
+  // ordinary creator/tasker actions.
+  operatorTreasuryFund: { limit: 10, windowMs: HOUR },
+  // Raising the shared ceiling is rarer and more consequential than an
+  // individual template reservation (it's the one action in this whole
+  // flow that still submits a real Circle transaction) -- kept at the same
+  // conservative limit as operatorTreasuryFund, not higher.
+  operatorTreasuryAllowance: { limit: 10, windowMs: HOUR },
 } as const satisfies Record<string, RateLimitConfig>;

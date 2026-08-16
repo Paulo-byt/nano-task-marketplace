@@ -318,6 +318,44 @@ export const taskTemplateGenerationEvents = pgTable(
 );
 
 /**
+ * Phase M3 (multi-template shared treasury allowance): an append-only
+ * ledger of the platform treasury's approve() calls to the executor.
+ * Mirrors task_template_generation_events's own shape and philosophy --
+ * insert-only, never updated, "latest row wins" -- because that is exactly
+ * what approve() itself does on-chain: each new call fully replaces the
+ * previous allowance rather than adding to it, so the most recent row here
+ * is the only one that reflects the current ceiling. Older rows are kept
+ * purely for audit history.
+ *
+ * This table intentionally has no relationship to any single task_templates
+ * row -- unlike pool_funding_tx_hash (which recorded one transaction per
+ * template, back when each template had its own dedicated approval), one
+ * approval here can now back many templates at once. Each template's own
+ * poolTotalUsdc remains a reservation *against* the latest row's
+ * approvedAmountUsdc, enforced by treasuryAllowanceService.reserveTemplatePool
+ * at write time, not by any constraint on this table itself.
+ */
+export const platformTreasuryAllowanceEvents = pgTable(
+  "platform_treasury_allowance_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    approvedAmountUsdc: numeric("approved_amount_usdc", {
+      precision: 10,
+      scale: 2,
+    }).notNull(),
+    approvalTxHash: text("approval_tx_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    approvalTxHashUnique: uniqueIndex(
+      "platform_treasury_allowance_events_tx_hash_unique"
+    ).on(table.approvalTxHash),
+  })
+);
+
+/**
  * A named batch of input material attached to one template (Phase 11C,
  * payload-based tasks) -- operator bookkeeping and provenance, not a queue
  * itself. status is deliberately just active/paused: pausing stops NEW

@@ -1,19 +1,92 @@
-import Link from "next/link";
 import type { Task } from "@/types/task";
+import type { MyApplicationForTask } from "@/services/applications/applicationsService";
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { FundTaskButton } from "@/components/marketplace/FundTaskButton";
+import { SubmitWorkButton } from "@/components/dashboard/SubmitWorkButton";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
-const DIFFICULTY_STYLES: Record<Task["difficulty"], string> = {
-  Beginner: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  Intermediate: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  Advanced: "bg-red-500/10 text-red-600 dark:text-red-400",
+type WorkspaceTone = "success" | "warning" | "error" | "info";
+
+const WORKSPACE_CONTAINER_STYLES: Record<WorkspaceTone, string> = {
+  success: "border-emerald-500/20 bg-emerald-500/[0.03] dark:border-emerald-500/20",
+  warning: "border-amber-500/20 bg-amber-500/[0.03] dark:border-amber-500/20",
+  error: "border-red-500/20 bg-red-500/[0.03] dark:border-red-500/20",
+  info: "border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02]",
 };
 
-const FUNDING_STATUS_STYLES: Record<Task["fundingStatus"], string> = {
-  unfunded: "bg-black/5 text-zinc-600 dark:bg-white/10 dark:text-zinc-400",
-  funded: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  released: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  cancelled: "bg-red-500/10 text-red-600 dark:text-red-400",
+/**
+ * M5: derives the tasker-facing workspace state purely from
+ * MyApplicationForTask -- never internal implementation detail (no
+ * mention of "deterministic", "testnet", provider names, or model
+ * information), matching the exact three example messages this phase was
+ * given. hasSubmission is checked before evaluationVerdict deliberately:
+ * a creator-owned task's verdict is already nulled out at the data layer
+ * (getMyApplicationForTask), so it naturally falls through to "Submitted
+ * -- awaiting evaluation" here, unchanged from M4's own original message --
+ * this function does not need its own platform-vs-creator branch.
+ */
+function describeWorkspaceState(app: MyApplicationForTask): {
+  tone: WorkspaceTone;
+  badgeLabel: string;
+  message: string;
+} {
+  if (!app.hasSubmission) {
+    return { tone: "success", badgeLabel: "Active", message: "You're working on this task" };
+  }
+  if (app.evaluationVerdict === "meets_requirements") {
+    if (app.payoutStatus === "completed") {
+      return { tone: "success", badgeLabel: "Paid", message: "Paid" };
+    }
+    if (app.payoutStatus === "failed") {
+      return {
+        tone: "error",
+        badgeLabel: "Payout Failed",
+        message: "Payout failed — requires attention",
+      };
+    }
+    // pending, retrying, cancelled, or (defensively) null: an accepted
+    // platform-task submission never reads as anything other than
+    // "payout in progress" here -- M6 only ever leaves a payout in
+    // "completed" or "failed" once it actually resolves one way or the
+    // other, so every other state means the same thing to the worker.
+    return {
+      tone: "success",
+      badgeLabel: "Accepted",
+      message: "Accepted — payout processing",
+    };
+  }
+  if (app.evaluationVerdict === "does_not_meet_requirements") {
+    return {
+      tone: "error",
+      badgeLabel: "Rejected",
+      message: "Rejected — submission did not meet the requirements",
+    };
+  }
+  if (app.evaluationVerdict === "partially_meets_requirements") {
+    return {
+      tone: "warning",
+      badgeLabel: "Under Review",
+      message: "Under review — additional review is required",
+    };
+  }
+  return { tone: "info", badgeLabel: "Submitted", message: "Submitted — awaiting evaluation" };
+}
+
+const DIFFICULTY_TONES: Record<Task["difficulty"], "success" | "warning" | "error"> = {
+  Beginner: "success",
+  Intermediate: "warning",
+  Advanced: "error",
+};
+
+const FUNDING_STATUS_TONES: Record<
+  Task["fundingStatus"],
+  "success" | "error" | "neutral"
+> = {
+  unfunded: "neutral",
+  funded: "success",
+  released: "success",
+  cancelled: "error",
 };
 
 const FUNDING_STATUS_LABELS: Record<Task["fundingStatus"], string> = {
@@ -70,29 +143,38 @@ function splitPayloadDescription(description: string): DescriptionParts {
   return { instructions, payload };
 }
 
-export async function TaskDetails({ task }: { task: Task }) {
+export async function TaskDetails({
+  task,
+  myApplication,
+}: {
+  task: Task;
+  // M4 (active-task workspace): the viewer's own application for this
+  // task, if any -- undefined for every unauthenticated or not-yet-applied
+  // visitor, in which case this component renders exactly as it did before
+  // this prop existed. Platform-generated and creator-posted tasks are not
+  // distinguished here at all: whichever task this is, an "approved"
+  // application means the same thing -- the viewer may work on it now --
+  // so no separate platform-specific branch exists, or is needed.
+  myApplication?: MyApplicationForTask;
+}) {
   // Server Component: resolved server-side according to the active
   // PAYOUT_CUSTODY_MODE, then passed down as a plain address string --
   // never a client-side import of executor/Circle configuration.
   const executorAddress = await getExecutorAddress();
   const { instructions, payload } = splitPayloadDescription(task.description);
+  const workspaceState =
+    myApplication?.status === "approved" ? describeWorkspaceState(myApplication) : null;
 
   return (
     <article className="flex flex-col gap-6 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full bg-black/5 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:bg-white/10 dark:text-zinc-400">
-          {task.category}
-        </span>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-medium ${DIFFICULTY_STYLES[task.difficulty]}`}
-        >
+        <Badge tone="neutral">{task.category}</Badge>
+        <Badge tone={DIFFICULTY_TONES[task.difficulty]}>
           {task.difficulty}
-        </span>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-medium ${FUNDING_STATUS_STYLES[task.fundingStatus]}`}
-        >
+        </Badge>
+        <Badge tone={FUNDING_STATUS_TONES[task.fundingStatus]}>
           {FUNDING_STATUS_LABELS[task.fundingStatus]}
-        </span>
+        </Badge>
       </div>
 
       <div>
@@ -142,15 +224,47 @@ export async function TaskDetails({ task }: { task: Task }) {
         </div>
       </dl>
 
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <Link
-          href={`/marketplace/${task.id}/apply`}
-          className="inline-flex flex-1 items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 sm:flex-none sm:self-start"
+      {myApplication?.status === "approved" && workspaceState ? (
+        <div
+          className={`flex flex-col gap-4 rounded-xl border p-5 ${WORKSPACE_CONTAINER_STYLES[workspaceState.tone]}`}
         >
-          Apply
-        </Link>
-        <FundTaskButton task={task} executorAddress={executorAddress} />
-      </div>
+          <div className="flex items-center gap-2">
+            <Badge tone={workspaceState.tone}>{workspaceState.badgeLabel}</Badge>
+            <p className="text-sm font-medium text-foreground">{workspaceState.message}</p>
+          </div>
+
+          {myApplication.hasSubmission ? (
+            <div className="rounded-lg border border-black/10 bg-black/[0.02] px-3 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-white/[0.02] dark:text-zinc-400">
+              <span className="mb-1 block font-medium text-foreground">
+                Your submission
+              </span>
+              {myApplication.submissionContent}
+              {myApplication.evaluationFeedback && (
+                <p className="mt-2 border-t border-black/10 pt-2 text-zinc-500 dark:border-white/10 dark:text-zinc-500">
+                  {myApplication.evaluationFeedback}
+                </p>
+              )}
+            </div>
+          ) : (
+            <SubmitWorkButton
+              taskId={task.id}
+              applicationId={myApplication.applicationId}
+            />
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <Button
+            href={`/marketplace/${task.id}/apply`}
+            variant="primary"
+            size="lg"
+            className="flex-1 sm:flex-none sm:self-start"
+          >
+            Apply
+          </Button>
+          <FundTaskButton task={task} executorAddress={executorAddress} />
+        </div>
+      )}
     </article>
   );
 }

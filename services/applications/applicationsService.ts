@@ -215,6 +215,95 @@ export async function getApplicantsForTask(
   });
 }
 
+export interface MyApplicationForTask {
+  applicationId: string;
+  status: "applied" | "approved" | "rejected" | "completed";
+  hasSubmission: boolean;
+  submissionContent: string | null;
+  isReviewed: boolean;
+  // Phase M5: null until evaluated, AND deliberately null for a
+  // creator-owned task regardless of whether an evaluation row exists --
+  // gated here, at the data layer, not left to the caller to remember.
+  // For a platform-owned task there is no human creator to defer to (M5's
+  // decision is already the closest thing to a final word this
+  // application gets before M6), so it's safe to expose to the worker
+  // directly; the existing Step 13 decision to keep this creator-only for
+  // an ordinary task is preserved unchanged by this same gate.
+  evaluationVerdict:
+    | "meets_requirements"
+    | "partially_meets_requirements"
+    | "does_not_meet_requirements"
+    | null;
+  evaluationFeedback: string | null;
+  // Phase M6: null whenever there is no payout row to report on yet (an
+  // ordinary creator task never gets one from this lookup -- gated below
+  // the same way evaluationVerdict/evaluationFeedback already are), or
+  // once one exists, its current status untouched -- this is a read of
+  // the same payouts row the M6 orchestration service itself transitions,
+  // never a second source of truth.
+  payoutStatus: "pending" | "completed" | "failed" | "cancelled" | "retrying" | null;
+}
+
+/**
+ * M4 (active-task workspace): the current session user's own application
+ * for one specific task, if any -- distinct from getMyTasks (every
+ * application across every task) and getApplicationForApproval (by
+ * applicationId, for the creator-facing approval routes). This is the
+ * "am I the approved worker on this exact task" lookup the task detail
+ * page needs to decide whether to show Apply or the active workspace.
+ *
+ * LEFT JOIN submissions mirrors getMyTasks' own join exactly --
+ * submissions_application_unique guarantees at most one row, so this can
+ * never return more than one logical result per (taskId, applicantId),
+ * consistent with applications_task_applicant_unique already guaranteeing
+ * at most one application row for that pair in the first place. The INNER
+ * JOIN against tasks is only ever used internally, to decide the M5
+ * verdict/feedback gate above -- never returned itself.
+ */
+export async function getMyApplicationForTask(
+  taskId: string,
+  applicantId: string
+): Promise<MyApplicationForTask | undefined> {
+  const rows = await db
+    .select({
+      applicationId: applications.id,
+      status: applications.status,
+      submissionId: submissions.id,
+      submissionContent: submissions.content,
+      evaluationVerdict: submissions.evaluationVerdict,
+      evaluationFeedback: submissions.evaluationFeedback,
+      evaluatedAt: submissions.evaluatedAt,
+      taskTemplateId: tasks.templateId,
+      payoutStatus: payouts.status,
+    })
+    .from(applications)
+    .innerJoin(tasks, eq(applications.taskId, tasks.id))
+    .leftJoin(submissions, eq(submissions.applicationId, applications.id))
+    .leftJoin(payouts, eq(payouts.applicationId, applications.id))
+    .where(
+      and(eq(applications.taskId, taskId), eq(applications.applicantId, applicantId))
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) {
+    return undefined;
+  }
+
+  const isPlatformTask = row.taskTemplateId !== null;
+
+  return {
+    applicationId: row.applicationId,
+    status: row.status,
+    hasSubmission: row.submissionId !== null,
+    submissionContent: row.submissionContent ?? null,
+    isReviewed: row.evaluatedAt !== null,
+    evaluationVerdict: isPlatformTask ? (row.evaluationVerdict ?? null) : null,
+    evaluationFeedback: isPlatformTask ? (row.evaluationFeedback ?? null) : null,
+    payoutStatus: isPlatformTask ? (row.payoutStatus ?? null) : null,
+  };
+}
+
 export interface ApplicationForApproval {
   id: string;
   taskId: string;

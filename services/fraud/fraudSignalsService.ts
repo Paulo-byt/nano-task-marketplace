@@ -224,6 +224,47 @@ export function anySignalTriggered(signals: FraudSignals): boolean {
 }
 
 /**
+ * Phase M5 (Arc Testnet path): a deterministic riskLevel from these same
+ * signals, with no Anthropic call -- analyzeFraudRisk.ts remains completely
+ * untouched and available for a future mainnet path; this is a separate,
+ * rule-based substitute for the testnet decision flow specifically, not a
+ * rewrite of that file.
+ *
+ * Mirrors the exact policy already written into analyzeFraudRisk.ts's own
+ * system prompt, made deterministic instead of left for Claude to
+ * synthesize: "self-application... is the one unambiguous signal... a
+ * reasonable basis for a high risk level" and "a single triggered signal
+ * alone should usually NOT produce a high risk level... reserve high for
+ * self-application, or a combination of multiple simultaneously triggered
+ * signals." This is not a new fraud policy -- it is the existing one,
+ * executed as fixed rules instead of an LLM call.
+ *
+ * selfApplication can never actually trigger for a platform-owned task
+ * (its creator is always the platform sentinel account, never a real
+ * applicant's own id) -- handled here anyway, for defense-in-depth and so
+ * this function is equally correct if ever reused for a creator-task
+ * context in the future.
+ */
+export function computeDeterministicRiskLevel(signals: FraudSignals): FraudRiskLevel {
+  if (signals.selfApplication.triggered) {
+    return "high";
+  }
+
+  const otherTriggeredCount = [
+    signals.rapidApprovalToSubmission,
+    signals.applicationVelocity,
+    signals.submissionVelocity,
+    signals.duplicateSubmissionContent,
+    signals.repeatedFailedEvaluations,
+    signals.newAccountHighActivity,
+  ].filter((signal) => signal.triggered).length;
+
+  if (otherTriggeredCount === 0) return "low";
+  if (otherTriggeredCount === 1) return "medium";
+  return "high";
+}
+
+/**
  * Persists one analysis run. Never overwrites a prior row -- multiple
  * assessments per application are allowed by design, each a snapshot of
  * that run's inputs and outcome. Nothing here writes to applications or
