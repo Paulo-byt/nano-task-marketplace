@@ -11,6 +11,7 @@ import {
   markPayoutCompleted,
   markPayoutFailed,
 } from "@/services/payouts/payoutsService";
+import { releasePoolAllocationForPayout } from "@/services/marketplace/treasuryAllowanceService";
 import { preflightPayout, submitPayoutTransfer } from "@/lib/arc/payoutRelay";
 import { evaluatePayoutReceipt } from "@/lib/arc/verifyPayout";
 import { arcPublicClient } from "@/lib/arc/publicClient";
@@ -226,6 +227,26 @@ export async function processPlatformPayoutIfEligible(
       reason: "Payout was already resolved by a concurrent process.",
       txHash,
     };
+  }
+
+  // Post-M6 lifecycle fix: this specific reward amount has now permanently
+  // left the treasury via a real, independently-verified transferFrom --
+  // it no longer needs to count as future outstanding capacity, and this
+  // template's generation headroom should reflect that it can be recycled.
+  // Best-effort, matching markApplicationCompleted/markTaskReleased's own
+  // posture right below: the payout itself already succeeded and was
+  // already verified: a failure here must never be reported as a payout
+  // failure, since that would incorrectly suggest the money never moved.
+  try {
+    await releasePoolAllocationForPayout(templateId, task.rewardUsdc);
+  } catch (err) {
+    log.error("platform_payout_completed_but_pool_not_released", {
+      payoutId: payout.payoutId,
+      applicationId,
+      templateId,
+      txHash,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const applicationCompleted = await markApplicationCompleted(applicationId);

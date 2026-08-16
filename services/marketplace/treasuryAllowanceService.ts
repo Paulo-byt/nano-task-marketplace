@@ -1,7 +1,13 @@
-import { desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { formatUnits, parseUnits } from "viem";
 import { db } from "@/db";
-import { platformTreasuryAllowanceEvents, taskTemplates } from "@/db/schema";
+import {
+  applications,
+  payouts,
+  platformTreasuryAllowanceEvents,
+  taskTemplates,
+  tasks,
+} from "@/db/schema";
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { getTreasuryAddress } from "@/lib/circle/treasuryWallet";
@@ -16,9 +22,24 @@ export class TreasuryAllowanceVerificationError extends Error {}
 export class TreasuryTemplateNotFoundError extends Error {}
 export class NoTreasuryAllowanceRecordedError extends Error {}
 export class InsufficientTreasuryHeadroomError extends Error {}
-export class TreasuryLedgerInconsistentError extends Error {}
 export class InsufficientOnChainAllowanceError extends Error {}
+export class InsufficientTreasuryBalanceError extends Error {}
 export class PoolAllocationExceedsRequestedTotalError extends Error {}
+
+// Post-M6 lifecycle fix: TreasuryLedgerInconsistentError (ledgerCeiling >
+// liveAllowance) has been removed. That check encoded an assumption that
+// was only ever true before any real payout had happened -- approve()
+// sets the ledger ceiling AND the live allowance to the same value
+// simultaneously, but every real transferFrom afterward decrements the
+// live allowance alone. Once M6 executed its first real payout, ceiling
+// (45.00) > liveAllowance (44.80) became the permanent, expected steady
+// state, not an anomaly -- so treating it as one made every subsequent
+// reservation attempt fail, forever, regardless of template or amount.
+// The ledger's latest row remains exactly what it always was (the most
+// recently approved ceiling, an append-only historical record) -- it is
+// simply no longer compared directly against the live allowance as a
+// pass/fail gate. See getTotalCompletedPlatformPayoutsUsdc and
+// reserveTemplatePool below for what replaced it.
 
 // Deliberately duplicated rather than importing an unexported helper --
 // the same precedent taskTemplatesService.ts's own pgErrorCode/
@@ -132,6 +153,83 @@ export async function getCurrentTreasuryAllowance() {
   return latest;
 }
 
+/**
+ * Post-M6 lifecycle fix: total USDC across every platform-task payout that
+ * has actually completed -- money that has permanently left the treasury
+ * via a real, verified transferFrom and will never need future allowance
+ * or balance again. isNotNull(tasks.templateId) is the same
+ * platform-ownership signal used everywhere else in this codebase
+ * (platformPayoutService.ts's own eligibility gate, getMyApplicationForTask's
+ * gating); a creator-owned task's payout is never counted here, matching
+ * the fact that creator tasks have no pool/ceiling accounting at all.
+ *
+ * Accepts either the plain db handle or an open transaction so
+ * reserveTemplatePool can read it under the same row locks as everything
+ * else it checks, while getTreasuryHealthSnapshot can call it as a plain,
+ * lock-free read.
+ */
+export async function getTotalCompletedPlatformPayoutsUsdc(
+  executor: Omit<typeof db, "$client"> = db
+): Promise<number> {
+  const [{ total }] = await executor
+    .select({
+      total: sql<string>`COALESCE(SUM(${payouts.amountUsdc}), 0)`,
+    })
+    .from(payouts)
+    .innerJoin(applications, eq(payouts.applicationId, applications.id))
+    .innerJoin(tasks, eq(applications.taskId, tasks.id))
+    .where(and(eq(payouts.status, "completed"), isNotNull(tasks.templateId)));
+
+  return Number(total);
+}
+
+/**
+ * Post-M6 lifecycle fix: releases one completed payout's reward amount
+ * back into its template's generation headroom, called exactly once per
+ * payout -- by platformPayoutService.ts, immediately after
+ * markPayoutCompleted succeeds for the first time (never on a call that
+ * finds the payout already resolved, which would double-release). This is
+ * the other half of the fix alongside getTotalCompletedPlatformPayoutsUsdc:
+ * that function corrects the *allowance/balance* side (a completed payout
+ * no longer counts as a future obligation); this one corrects the
+ * *generation* side, so replenishTemplateIfNeeded/generateTaskInstance
+ * -- both completely unmodified -- naturally see the freed headroom
+ * through their own existing poolAllocatedUsdc + rewardUsdc <=
+ * poolTotalUsdc check and can generate a new instance in its place. This
+ * is what makes template pools recyclable rather than a one-time,
+ * permanently-exhausted budget.
+ *
+ * A single relative UPDATE, atomic on its own (no explicit transaction
+ * needed, the same way generateTaskInstance's own poolAllocatedUsdc
+ * decrement -- its compensating release on payload exhaustion -- needs
+ * none beyond the outer transaction it happens to already be inside).
+ * GREATEST(..., 0) is defensive, not load-bearing under correct operation:
+ * each instance's reward is added to poolAllocatedUsdc exactly once (at
+ * generation) and this releases it back exactly once (at payout
+ * completion, gated by markPayoutCompleted's own idempotency), so the
+ * running total is balanced by construction; the floor only guards
+ * against an unforeseen future caller breaking that pairing.
+ *
+ * Best-effort by design, matching markApplicationCompleted/
+ * markTaskReleased's own posture in platformPayoutService.ts: the payout
+ * itself has already succeeded and been independently verified on-chain by
+ * the time this runs. A failure here must never be reported as a payout
+ * failure -- it would incorrectly suggest money never moved when it did.
+ * The caller is responsible for catching and logging.
+ */
+export async function releasePoolAllocationForPayout(
+  templateId: string,
+  amountUsdc: number
+): Promise<void> {
+  await db
+    .update(taskTemplates)
+    .set({
+      poolAllocatedUsdc: sql`GREATEST(${taskTemplates.poolAllocatedUsdc} - ${amountUsdc.toFixed(2)}::numeric, 0)`,
+      updatedAt: new Date(),
+    })
+    .where(eq(taskTemplates.id, templateId));
+}
+
 export interface ReserveTemplatePoolResult {
   templateId: string;
   poolTotalUsdc: string;
@@ -154,21 +252,38 @@ export interface ReserveTemplatePoolResult {
  * platform_treasury_allowance_events instead.
  *
  * Four independent invariant checks, each with its own rejection reason,
- * deliberately not collapsed into one combined condition even though some
- * are transitively implied by the others -- the same "never trust one
- * layer" posture evaluateApprovalReceipt already takes, and it means a
- * caller gets an accurate reason even if the ledger and the chain have
- * drifted out of sync with each other:
+ * deliberately not collapsed into one combined condition -- the same
+ * "never trust one layer" posture evaluateApprovalReceipt already takes.
+ * Two different totals are in play, and confusing them is exactly the bug
+ * this fixed (see the removed TreasuryLedgerInconsistentError, above):
  *
- *   1. reserved (this template's new total + every other template's
- *      existing total) must not exceed the ledger's recorded ceiling.
- *   2. the ledger's recorded ceiling must not exceed the live on-chain
- *      allowance -- if it does, the ledger is claiming more capacity than
- *      the chain actually grants, and nothing should be reserved against
- *      it until that's reconciled.
- *   3. the proposed cumulative reservation must not exceed the live
- *      on-chain allowance directly -- the real, final backstop,
- *      independent of whether checks 1-2 already cover it.
+ *   - proposedTotalRaw = this template's new total + every other
+ *     template's existing poolTotalUsdc. A pure quota-allocation figure --
+ *     "how much headroom has the operator ever granted across all
+ *     templates" -- independent of whether any of it has been spent yet.
+ *   - proposedTotalOutstanding = proposedTotalRaw minus every completed
+ *     platform payout, platform-wide (getTotalCompletedPlatformPayoutsUsdc).
+ *     "How much of that headroom could still genuinely need paying in the
+ *     future." A completed payout has already permanently left the
+ *     treasury -- it will never need allowance or balance again, so it
+ *     must not keep counting against either.
+ *
+ *   1. proposedTotalRaw must not exceed the ledger's recorded ceiling --
+ *      an operator-approval sanity check, deliberately NOT netted against
+ *      completed payouts: it answers "did the operator ever grant this
+ *      much total quota," not "is any of it still outstanding." Raising
+ *      this ceiling remains the existing, separate, operator-controlled
+ *      POST /api/operator/treasury/allowance action.
+ *   2. proposedTotalOutstanding must not exceed the live on-chain
+ *      allowance -- the real, final backstop for "can this actually still
+ *      be paid." (Replaces the old, removed ceiling-vs-allowance check,
+ *      which was only ever valid before any real payout had happened.)
+ *   3. proposedTotalOutstanding must not exceed the treasury's actual,
+ *      live ERC-20 USDC balance -- allowance is a spending *permission*
+ *      ceiling, not proof the treasury still holds enough real USDC; these
+ *      are independent on-chain quantities that only move together
+ *      *during* a payout (transferFrom decrements both atomically), never
+ *      automatically kept in sync with each other ahead of time.
  *   4. this template's own poolAllocatedUsdc (already-generated instances)
  *      must not exceed the new poolTotalUsdc being requested -- the same
  *      invariant task_templates_pool_allocation_check already enforces at
@@ -179,11 +294,11 @@ export interface ReserveTemplatePoolResult {
  * with the current ledger row and the target template row both locked via
  * FOR UPDATE -- the same transactional-safety idiom generateTaskInstance
  * already proves out in this codebase, applied here to a different pair of
- * rows. The live on-chain allowance is read via a plain, gas-free RPC call
- * (viem's readContract against the existing usdcAbi) *before* the
- * transaction opens, deliberately kept outside the lock -- no code in this
- * codebase holds a database transaction open across a network call, and
- * this doesn't start.
+ * rows. Both the live on-chain allowance and the live treasury balance are
+ * read via plain, gas-free RPC calls (viem's readContract against the
+ * existing usdcAbi) *before* the transaction opens, deliberately kept
+ * outside the lock -- no code in this codebase holds a database transaction
+ * open across a network call, and this doesn't start.
  */
 export async function reserveTemplatePool(
   templateId: string,
@@ -202,12 +317,21 @@ export async function reserveTemplatePool(
 
   const treasuryAddress = await getTreasuryAddress();
   const executorAddress = await getExecutorAddress();
-  const liveAllowanceBaseUnits = await arcPublicClient.readContract({
-    address: USDC_TOKEN_ADDRESS,
-    abi: usdcAbi,
-    functionName: "allowance",
-    args: [treasuryAddress, executorAddress],
-  });
+  const [liveTreasuryBalanceBaseUnits, liveAllowanceBaseUnits] = await Promise.all([
+    arcPublicClient.readContract({
+      address: USDC_TOKEN_ADDRESS,
+      abi: usdcAbi,
+      functionName: "balanceOf",
+      args: [treasuryAddress],
+    }),
+    arcPublicClient.readContract({
+      address: USDC_TOKEN_ADDRESS,
+      abi: usdcAbi,
+      functionName: "allowance",
+      args: [treasuryAddress, executorAddress],
+    }),
+  ]);
+  const liveTreasuryBalanceUsdc = Number(formatUnits(liveTreasuryBalanceBaseUnits, USDC_DECIMALS));
   const liveAllowanceUsdc = Number(formatUnits(liveAllowanceBaseUnits, USDC_DECIMALS));
 
   return db.transaction(async (tx) => {
@@ -244,29 +368,35 @@ export async function reserveTemplatePool(
       .from(taskTemplates)
       .where(ne(taskTemplates.id, templateId));
 
-    const approvedCeiling = Number(ledgerRow.approvedAmountUsdc);
-    const proposedTotal = Number(othersReserved) + amountUsdc;
+    const totalCompletedPayoutsUsdc = await getTotalCompletedPlatformPayoutsUsdc(tx);
 
-    if (proposedTotal > approvedCeiling) {
+    const approvedCeiling = Number(ledgerRow.approvedAmountUsdc);
+    const proposedTotalRaw = Number(othersReserved) + amountUsdc;
+    const proposedTotalOutstanding = proposedTotalRaw - totalCompletedPayoutsUsdc;
+
+    if (proposedTotalRaw > approvedCeiling) {
       throw new InsufficientTreasuryHeadroomError(
         `Reserving ${amountUsdc.toFixed(2)} for this template would bring total reserved ` +
-          `across all templates to ${proposedTotal.toFixed(2)}, exceeding the recorded ` +
+          `across all templates to ${proposedTotalRaw.toFixed(2)}, exceeding the recorded ` +
           `ceiling of ${approvedCeiling.toFixed(2)}.`
       );
     }
 
-    if (approvedCeiling > liveAllowanceUsdc) {
-      throw new TreasuryLedgerInconsistentError(
-        `The recorded ceiling (${approvedCeiling.toFixed(2)}) exceeds the live on-chain ` +
-          `allowance (${liveAllowanceUsdc.toFixed(2)}) -- refusing to reserve against a ` +
-          `ledger that claims more capacity than the chain currently grants.`
+    if (proposedTotalOutstanding > liveAllowanceUsdc) {
+      throw new InsufficientOnChainAllowanceError(
+        `The proposed outstanding reservation (${proposedTotalOutstanding.toFixed(2)}, after ` +
+          `netting out ${totalCompletedPayoutsUsdc.toFixed(2)} in already-completed payouts) ` +
+          `exceeds the live on-chain allowance (${liveAllowanceUsdc.toFixed(2)}).`
       );
     }
 
-    if (proposedTotal > liveAllowanceUsdc) {
-      throw new InsufficientOnChainAllowanceError(
-        `The proposed cumulative reservation (${proposedTotal.toFixed(2)}) exceeds the ` +
-          `live on-chain allowance (${liveAllowanceUsdc.toFixed(2)}).`
+    if (proposedTotalOutstanding > liveTreasuryBalanceUsdc) {
+      throw new InsufficientTreasuryBalanceError(
+        `The proposed outstanding reservation (${proposedTotalOutstanding.toFixed(2)}, after ` +
+          `netting out ${totalCompletedPayoutsUsdc.toFixed(2)} in already-completed payouts) ` +
+          `exceeds the treasury's actual USDC balance (${liveTreasuryBalanceUsdc.toFixed(2)}) ` +
+          `-- the allowance may permit this reservation, but the treasury does not hold ` +
+          `enough USDC to ever pay it out.`
       );
     }
 
@@ -289,8 +419,8 @@ export async function reserveTemplatePool(
       poolTotalUsdc: updated.poolTotalUsdc,
       poolAllocatedUsdc: updated.poolAllocatedUsdc,
       approvedCeilingUsdc: approvedCeiling.toFixed(2),
-      totalReservedUsdc: proposedTotal.toFixed(2),
-      remainingHeadroomUsdc: (approvedCeiling - proposedTotal).toFixed(2),
+      totalReservedUsdc: proposedTotalOutstanding.toFixed(2),
+      remainingHeadroomUsdc: (approvedCeiling - proposedTotalOutstanding).toFixed(2),
     };
   });
 }

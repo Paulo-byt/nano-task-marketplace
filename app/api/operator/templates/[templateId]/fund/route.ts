@@ -9,8 +9,8 @@ import {
   TreasuryTemplateNotFoundError,
   NoTreasuryAllowanceRecordedError,
   InsufficientTreasuryHeadroomError,
-  TreasuryLedgerInconsistentError,
   InsufficientOnChainAllowanceError,
+  InsufficientTreasuryBalanceError,
   PoolAllocationExceedsRequestedTotalError,
 } from "@/services/marketplace/treasuryAllowanceService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
@@ -128,8 +128,8 @@ export async function POST(
       err instanceof TreasuryTemplateNotFoundError ||
       err instanceof NoTreasuryAllowanceRecordedError ||
       err instanceof InsufficientTreasuryHeadroomError ||
-      err instanceof TreasuryLedgerInconsistentError ||
       err instanceof InsufficientOnChainAllowanceError ||
+      err instanceof InsufficientTreasuryBalanceError ||
       err instanceof PoolAllocationExceedsRequestedTotalError
         ? 400
         : 500;
