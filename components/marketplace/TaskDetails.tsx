@@ -9,10 +9,10 @@ import { Button } from "@/components/ui/Button";
 type WorkspaceTone = "success" | "warning" | "error" | "info";
 
 const WORKSPACE_CONTAINER_STYLES: Record<WorkspaceTone, string> = {
-  success: "border-emerald-500/20 bg-emerald-500/[0.03] dark:border-emerald-500/20",
-  warning: "border-amber-500/20 bg-amber-500/[0.03] dark:border-amber-500/20",
-  error: "border-red-500/20 bg-red-500/[0.03] dark:border-red-500/20",
-  info: "border-black/10 bg-black/[0.02] dark:border-white/10 dark:bg-white/[0.02]",
+  success: "border-success/20 bg-success/5",
+  warning: "border-warning/20 bg-warning/5",
+  error: "border-error/20 bg-error/5",
+  info: "border-border bg-surface-muted",
 };
 
 /**
@@ -166,7 +166,7 @@ export async function TaskDetails({
     myApplication?.status === "approved" ? describeWorkspaceState(myApplication) : null;
 
   return (
-    <article className="flex flex-col gap-6 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
+    <article className="flex flex-col gap-6 rounded-xl border border-border bg-surface p-6 shadow-sm sm:p-8">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="neutral">{task.category}</Badge>
         <Badge tone={DIFFICULTY_TONES[task.difficulty]}>
@@ -177,17 +177,23 @@ export async function TaskDetails({
         </Badge>
       </div>
 
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-          {task.title}
-        </h1>
-        <p className="mt-3 text-sm text-zinc-600 dark:text-zinc-400 sm:text-base">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            {task.title}
+          </h1>
+          <p className="shrink-0 text-3xl font-bold text-primary sm:text-right">
+            {task.rewardUsdc.toFixed(2)}{" "}
+            <span className="text-base font-medium text-zinc-500">USDC</span>
+          </p>
+        </div>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400 sm:text-base">
           {instructions}
         </p>
       </div>
 
       {payload && (
-        <div>
+        <div className="rounded-lg bg-surface-muted p-4">
           <h2 className="text-sm font-semibold text-foreground">
             Task-specific material
           </h2>
@@ -197,15 +203,7 @@ export async function TaskDetails({
         </div>
       )}
 
-      <dl className="grid grid-cols-2 gap-4 border-y border-black/10 py-5 dark:border-white/10 sm:grid-cols-3">
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-zinc-500">
-            Reward
-          </dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {task.rewardUsdc.toFixed(2)} USDC
-          </dd>
-        </div>
+      <dl className="grid grid-cols-2 gap-4 border-y border-border py-5">
         <div>
           <dt className="text-xs uppercase tracking-wide text-zinc-500">
             Est. Time
@@ -234,13 +232,13 @@ export async function TaskDetails({
           </div>
 
           {myApplication.hasSubmission ? (
-            <div className="rounded-lg border border-black/10 bg-black/[0.02] px-3 py-2 text-xs text-zinc-600 dark:border-white/10 dark:bg-white/[0.02] dark:text-zinc-400">
+            <div className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
               <span className="mb-1 block font-medium text-foreground">
                 Your submission
               </span>
               {myApplication.submissionContent}
               {myApplication.evaluationFeedback && (
-                <p className="mt-2 border-t border-black/10 pt-2 text-zinc-500 dark:border-white/10 dark:text-zinc-500">
+                <p className="mt-2 border-t border-border pt-2 text-zinc-500">
                   {myApplication.evaluationFeedback}
                 </p>
               )}
@@ -256,7 +254,7 @@ export async function TaskDetails({
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button
             href={`/marketplace/${task.id}/apply`}
-            variant="primary"
+            variant="brand"
             size="lg"
             className="flex-1 sm:flex-none sm:self-start"
           >

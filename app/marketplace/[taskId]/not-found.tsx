@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Button } from "@/components/ui/Button";
 
 export default function TaskNotFound() {
   return (
@@ -9,12 +9,9 @@ export default function TaskNotFound() {
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
         This task may have been completed, removed, or the link is incorrect.
       </p>
-      <Link
-        href="/marketplace"
-        className="mt-2 text-sm font-medium text-foreground underline-offset-2 hover:underline"
-      >
+      <Button href="/marketplace" variant="brand" className="mt-2">
         Back to Marketplace
-      </Link>
+      </Button>
     </div>
   );
 }

@@ -21,8 +21,8 @@ export function FilterChips({
             aria-pressed={isSelected}
             className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
               isSelected
-                ? "border-foreground bg-foreground text-background"
-                : "border-black/10 text-zinc-600 hover:border-black/20 hover:text-foreground dark:border-white/15 dark:text-zinc-400 dark:hover:border-white/30"
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-zinc-600 hover:border-primary/30 hover:bg-primary/5 hover:text-foreground dark:text-zinc-400"
             }`}
           >
             {category}
