@@ -4,6 +4,7 @@ import { useWallet } from "@/hooks/useWallet";
 import { truncateAddress } from "@/lib/utils/address";
 import { SettingsSection } from "@/components/dashboard/SettingsSection";
 import { SettingsRow } from "@/components/dashboard/SettingsRow";
+import { Badge } from "@/components/ui/Badge";
 
 export function WalletSettingsSection() {
   const { address, isConnected, chainName } = useWallet();
@@ -15,7 +16,11 @@ export function WalletSettingsSection() {
     >
       <SettingsRow
         label="Connection Status"
-        value={isConnected ? "Connected" : "Not connected"}
+        value={
+          <Badge tone={isConnected ? "success" : "neutral"}>
+            {isConnected ? "Connected" : "Not connected"}
+          </Badge>
+        }
       />
       <SettingsRow
         label="Wallet Address"

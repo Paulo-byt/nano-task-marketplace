@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/Button";
 
 type Status = "idle" | "confirming" | "loading" | "error";
 
@@ -51,20 +52,12 @@ export function RetryPayoutButton({
           <span className="text-xs text-zinc-600 dark:text-zinc-400">
             Retry this payout?
           </span>
-          <button
-            type="button"
-            onClick={() => setStatus("idle")}
-            className="inline-flex items-center justify-center rounded-full border border-black/10 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
-          >
+          <Button variant="secondary" size="sm" onClick={() => setStatus("idle")}>
             Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleRetry}
-            className="inline-flex items-center justify-center rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-colors hover:opacity-90"
-          >
+          </Button>
+          <Button variant="brand" size="sm" onClick={handleRetry}>
             Confirm Retry
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -72,16 +65,16 @@ export function RetryPayoutButton({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
+      <Button
+        variant="brand"
+        size="sm"
         onClick={() => setStatus("confirming")}
         disabled={status === "loading"}
-        className="inline-flex items-center justify-center rounded-full bg-foreground px-3 py-1.5 text-xs font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "loading" ? "Retrying…" : "Retry Payout"}
-      </button>
+      </Button>
       {status === "error" && error && (
-        <p className="max-w-[16rem] text-right text-xs text-red-600 dark:text-red-400">
+        <p className="max-w-[16rem] text-right text-xs text-error">
           {error}
         </p>
       )}

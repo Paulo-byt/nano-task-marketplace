@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* 11G: manual theme toggle. Tailwind v4's dark: variant defaults to
+   @media (prefers-color-scheme: dark), which has no way to be overridden
+   by a manual Light/Dark choice -- this repoints it at a root .dark class
+   instead, so both dark: utilities (the zinc-* secondary-text scale used
+   throughout every component) and the --token custom properties below
+   respond to the exact same signal. providers/ThemeProvider.tsx is the
+   only thing that ever adds or removes this class. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /*
  * 11A Step A -- global design-token foundation.
  *
@@ -60,29 +69,35 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* 11G: was @media (prefers-color-scheme: dark) { :root { ... } } -- same
+   selector-vs-media-query change as the @custom-variant above, same
+   reason. Every value below is unchanged from the original media-query
+   block; only the selector moved, so OS-driven dark mode looks pixel
+   -identical to before for anyone who hasn't made an explicit choice
+   (ThemeProvider adds this class for them at boot when theme=system and
+   the OS prefers dark -- see its own comment for the full three-state
+   contract). */
+:root.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
 
-    /* Dark-mode elevation goes lighter than the page background, not
-       darker -- a surface "closer to the viewer" reads as slightly
-       brighter, the same convention every mature dark theme uses. This
-       is a deliberate, non-inverted choice, not background's mirror. */
-    --surface: #141414;
-    --surface-muted: #1c1c1c;
-    --border: #2a2a2a;
+  /* Dark-mode elevation goes lighter than the page background, not
+     darker -- a surface "closer to the viewer" reads as slightly
+     brighter, the same convention every mature dark theme uses. This
+     is a deliberate, non-inverted choice, not background's mirror. */
+  --surface: #141414;
+  --surface-muted: #1c1c1c;
+  --border: #2a2a2a;
 
-    /* Lighter accent shade for adequate contrast against a near-black
-       background; dark text for the (rare) case it's used as a fill. */
-    --primary: #818cf8;
-    --primary-foreground: #1e1b4b;
+  /* Lighter accent shade for adequate contrast against a near-black
+     background; dark text for the (rare) case it's used as a fill. */
+  --primary: #818cf8;
+  --primary-foreground: #1e1b4b;
 
-    --success: #34d399;
-    --warning: #fbbf24;
-    --error: #f87171;
-    --info: #a1a1aa;
-  }
+  --success: #34d399;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --info: #a1a1aa;
 }
 
 body {

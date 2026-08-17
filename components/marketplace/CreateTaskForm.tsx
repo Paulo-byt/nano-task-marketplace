@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
 import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
 import { GenerateTaskButton } from "@/components/ai/GenerateTaskButton";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
+import { Select } from "@/components/ui/Select";
 import type { TaskDraft } from "@/types/ai";
 
 const CATEGORIES = ["Writing", "AI", "Research", "Design", "Social"] as const;
@@ -72,7 +76,7 @@ export function CreateTaskForm() {
 
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-start gap-3 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
+      <div className="flex flex-col items-start gap-3 rounded-xl border border-border bg-surface p-6 shadow-sm sm:p-8">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Connect your wallet to post a task.
         </p>
@@ -83,7 +87,7 @@ export function CreateTaskForm() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex flex-col items-start gap-3 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
+      <div className="flex flex-col items-start gap-3 rounded-xl border border-border bg-surface p-6 shadow-sm sm:p-8">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Sign in to post a task.
         </p>
@@ -95,7 +99,7 @@ export function CreateTaskForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex flex-col gap-5 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8"
+      className="flex flex-col gap-5 rounded-xl border border-border bg-surface p-6 shadow-sm sm:p-8"
     >
       <GenerateTaskButton onGenerated={handleGenerated} />
 
@@ -106,13 +110,12 @@ export function CreateTaskForm() {
         >
           Title
         </label>
-        <input
+        <Input
           id="title"
           type="text"
           required
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
         />
       </div>
 
@@ -123,17 +126,16 @@ export function CreateTaskForm() {
         >
           Description
         </label>
-        <textarea
+        <Textarea
           id="description"
           required
           rows={4}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
-          className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="category"
@@ -141,20 +143,19 @@ export function CreateTaskForm() {
           >
             Category
           </label>
-          <select
+          <Select
             id="category"
             value={category}
             onChange={(event) =>
               setCategory(event.target.value as (typeof CATEGORIES)[number])
             }
-            className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
           >
             {CATEGORIES.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -164,7 +165,7 @@ export function CreateTaskForm() {
           >
             Difficulty
           </label>
-          <select
+          <Select
             id="difficulty"
             value={difficulty}
             onChange={(event) =>
@@ -172,18 +173,17 @@ export function CreateTaskForm() {
                 event.target.value as (typeof DIFFICULTIES)[number]
               )
             }
-            className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
           >
             {DIFFICULTIES.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="rewardUsdc"
@@ -191,7 +191,7 @@ export function CreateTaskForm() {
           >
             Reward (USDC)
           </label>
-          <input
+          <Input
             id="rewardUsdc"
             type="number"
             required
@@ -200,7 +200,6 @@ export function CreateTaskForm() {
             step="0.01"
             value={rewardUsdc}
             onChange={(event) => setRewardUsdc(event.target.value)}
-            className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
           />
         </div>
 
@@ -211,28 +210,23 @@ export function CreateTaskForm() {
           >
             Estimated time
           </label>
-          <input
+          <Input
             id="estimatedTime"
             type="text"
             required
             placeholder="e.g. 15 min"
             value={estimatedTime}
             onChange={(event) => setEstimatedTime(event.target.value)}
-            className="rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm text-foreground dark:border-white/15"
           />
         </div>
       </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <button
-          type="submit"
-          disabled={status === "submitting"}
-          className="inline-flex items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-        >
+        <Button type="submit" variant="brand" size="lg" disabled={status === "submitting"}>
           {status === "submitting" ? "Posting…" : "Post Task"}
-        </button>
+        </Button>
         {status === "error" && error && (
-          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <p className="text-sm text-error">{error}</p>
         )}
       </div>
     </form>

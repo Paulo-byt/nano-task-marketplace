@@ -1,12 +1,18 @@
 import Link from "next/link";
 import type { PostedTask } from "@/types/postedTask";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { CancelTaskButton } from "@/components/dashboard/CancelTaskButton";
 
-const FUNDING_STATUS_STYLES: Record<PostedTask["fundingStatus"], string> = {
-  unfunded: "bg-black/5 text-zinc-600 dark:bg-white/10 dark:text-zinc-400",
-  funded: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  released: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  cancelled: "bg-red-500/10 text-red-600 dark:text-red-400",
+const FUNDING_STATUS_TONES: Record<
+  PostedTask["fundingStatus"],
+  "success" | "error" | "neutral"
+> = {
+  unfunded: "neutral",
+  funded: "success",
+  released: "success",
+  cancelled: "error",
 };
 
 const FUNDING_STATUS_LABELS: Record<PostedTask["fundingStatus"], string> = {
@@ -18,13 +24,13 @@ const FUNDING_STATUS_LABELS: Record<PostedTask["fundingStatus"], string> = {
 
 export function PostedTasksList({ tasks }: { tasks: PostedTask[] }) {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
+    <Card>
+      <h2 className="border-b border-border px-5 py-4 text-sm font-semibold text-foreground">
         Posted Tasks
       </h2>
 
       {tasks.length > 0 ? (
-        <ul className="divide-y divide-black/10 dark:divide-white/10">
+        <ul className="divide-y divide-border">
           {tasks.map((task) => (
             <li
               key={task.id}
@@ -42,20 +48,19 @@ export function PostedTasksList({ tasks }: { tasks: PostedTask[] }) {
                 </p>
               </div>
               <div className="flex flex-shrink-0 flex-wrap items-center gap-3">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium ${FUNDING_STATUS_STYLES[task.fundingStatus]}`}
-                >
+                <Badge tone={FUNDING_STATUS_TONES[task.fundingStatus]}>
                   {FUNDING_STATUS_LABELS[task.fundingStatus]}
-                </span>
-                <span className="text-sm font-semibold text-foreground">
+                </Badge>
+                <span className="text-base font-semibold text-primary">
                   {task.rewardUsdc.toFixed(2)} USDC
                 </span>
-                <Link
+                <Button
                   href={`/dashboard/posted-tasks/${task.id}/applicants`}
-                  className="inline-flex items-center justify-center rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
+                  variant="secondary"
+                  size="sm"
                 >
                   Applicants ({task.applicantCount})
-                </Link>
+                </Button>
                 {(task.fundingStatus === "unfunded" ||
                   task.fundingStatus === "funded") && (
                   <CancelTaskButton taskId={task.id} />
@@ -76,6 +81,6 @@ export function PostedTasksList({ tasks }: { tasks: PostedTask[] }) {
           .
         </p>
       )}
-    </div>
+    </Card>
   );
 }

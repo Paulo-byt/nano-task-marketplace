@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/hooks/useWallet";
 import { ApplicantsList } from "@/components/dashboard/ApplicantsList";
+import { StateCard } from "@/components/ui/StateCard";
+import { Button } from "@/components/ui/Button";
 import type { Applicant } from "@/types/postedTask";
 
 async function fetchApplicants(taskId: string): Promise<Applicant[]> {
@@ -16,15 +18,36 @@ async function fetchApplicants(taskId: string): Promise<Applicant[]> {
   return data.applicants as Applicant[];
 }
 
-function StateCard({ message }: { message: string }) {
+// Mirrors ApplicantsList's own Card-with-header, divided-row shape.
+function ApplicantsSkeleton() {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
-        Applicants
-      </h2>
-      <p className="px-5 py-8 text-center text-sm text-zinc-500">
-        {message}
-      </p>
+    <div
+      role="status"
+      aria-label="Loading applicants"
+      className="rounded-xl border border-border bg-surface"
+    >
+      <span className="sr-only">Loading applicants…</span>
+      <div aria-hidden="true">
+        <div className="border-b border-border px-5 py-4">
+          <div className="h-4 w-24 animate-pulse rounded bg-surface-muted" />
+        </div>
+        <div className="divide-y divide-border">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="flex flex-col gap-3 px-5 py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-2">
+                  <div className="h-4 w-32 animate-pulse rounded bg-surface-muted" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-surface-muted" />
+                </div>
+                <div className="flex gap-2">
+                  <div className="h-6 w-16 animate-pulse rounded-full bg-surface-muted" />
+                  <div className="h-6 w-16 animate-pulse rounded-full bg-surface-muted" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -32,7 +55,7 @@ function StateCard({ message }: { message: string }) {
 export function ApplicantsContainer({ taskId }: { taskId: string }) {
   const { address, isConnected, isAuthenticated } = useWallet();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["task-applicants", taskId, address],
     queryFn: () => fetchApplicants(taskId),
     enabled: isAuthenticated,
@@ -40,21 +63,41 @@ export function ApplicantsContainer({ taskId }: { taskId: string }) {
 
   if (!isConnected) {
     return (
-      <StateCard message="Connect your wallet to see this task's applicants." />
+      <StateCard
+        title="Applicants"
+        message="Connect your wallet to see this task's applicants."
+        className="shadow-sm"
+      />
     );
   }
 
   if (!isAuthenticated) {
-    return <StateCard message="Sign in to see this task's applicants." />;
+    return (
+      <StateCard
+        title="Applicants"
+        message="Sign in to see this task's applicants."
+        className="shadow-sm"
+      />
+    );
   }
 
   if (isLoading) {
-    return <StateCard message="Loading applicants…" />;
+    return <ApplicantsSkeleton />;
   }
 
   if (isError) {
     return (
-      <StateCard message="Couldn't load applicants. You may not have access to this task." />
+      <StateCard
+        title="Applicants"
+        message="Couldn't load applicants. You may not have access to this task."
+        className="shadow-sm"
+      >
+        <div className="mt-4">
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </div>
+      </StateCard>
     );
   }
 

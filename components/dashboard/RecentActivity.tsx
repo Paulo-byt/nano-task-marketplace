@@ -1,14 +1,22 @@
 import type { ActivityItem } from "@/types/dashboard";
+import { Card } from "@/components/ui/Card";
 
+// Three distinct hues from the real token/brand palette (not raw colors):
+// info for "you took an action," success for a positive milestone, and
+// primary (brand) specifically for money arriving -- since payment and
+// completed are otherwise both "positive" events, collapsing them onto
+// the same tone would lose the at-a-glance scannability this dot list is
+// for. Distinguishable by more than color alone regardless, since each
+// row's own description text always states what happened.
 const ACTIVITY_DOT_STYLES: Record<ActivityItem["type"], string> = {
-  applied: "bg-blue-500",
-  completed: "bg-emerald-500",
-  payment: "bg-violet-500",
+  applied: "bg-info",
+  completed: "bg-success",
+  payment: "bg-primary",
 };
 
 export function RecentActivity({ activity }: { activity: ActivityItem[] }) {
   return (
-    <div className="rounded-xl border border-black/10 p-5 dark:border-white/10">
+    <Card className="p-5">
       <h2 className="text-sm font-semibold text-foreground">
         Recent Activity
       </h2>
@@ -31,8 +39,11 @@ export function RecentActivity({ activity }: { activity: ActivityItem[] }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-4 text-sm text-zinc-500">No recent activity yet.</p>
+        <p className="mt-4 text-sm text-zinc-500">
+          No recent activity yet. Activity from applications, submissions,
+          and payouts will show up here.
+        </p>
       )}
-    </div>
+    </Card>
   );
 }

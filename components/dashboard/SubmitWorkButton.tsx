@@ -86,7 +86,7 @@ export function SubmitWorkButton({
 
   if (status === "success") {
     return (
-      <div className="flex w-full items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.05] px-3 py-2 text-xs text-emerald-700 dark:border-emerald-500/20 dark:text-emerald-400 sm:w-64">
+      <div className="flex w-full items-center gap-2 rounded-lg border border-success/20 bg-success/5 px-3 py-2 text-xs text-success sm:w-64">
         <span aria-hidden="true" className="font-semibold">
           ✓
         </span>
@@ -108,15 +108,13 @@ export function SubmitWorkButton({
       />
       <p
         className={`text-right text-[10px] ${
-          isAtLimit
-            ? "text-amber-600 dark:text-amber-400"
-            : "text-zinc-500 dark:text-zinc-500"
+          isAtLimit ? "text-warning" : "text-zinc-500 dark:text-zinc-500"
         }`}
       >
         {content.length} / {MAX_CONTENT_LENGTH}
       </p>
       <Button
-        variant="primary"
+        variant="brand"
         size="sm"
         onClick={handleSubmit}
         disabled={status === "submitting"}
@@ -124,7 +122,7 @@ export function SubmitWorkButton({
         {status === "submitting" ? "Submitting…" : "Submit Work"}
       </Button>
       {status === "error" && error && (
-        <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
+        <p className="text-xs text-error">{error}</p>
       )}
     </div>
   );

@@ -1,4 +1,6 @@
 import type { Applicant } from "@/types/postedTask";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
 import { ApproveApplicationButton } from "@/components/dashboard/ApproveApplicationButton";
 import { RejectApplicationButton } from "@/components/dashboard/RejectApplicationButton";
 import { ReleasePayoutButton } from "@/components/dashboard/ReleasePayoutButton";
@@ -7,13 +9,15 @@ import { RetryPayoutButton } from "@/components/dashboard/RetryPayoutButton";
 import { EvaluateSubmissionButton } from "@/components/ai/EvaluateSubmissionButton";
 import { AnalyzeFraudRiskButton } from "@/components/ai/AnalyzeFraudRiskButton";
 
-const VERDICT_STYLES: Record<
+type BadgeTone = "success" | "warning" | "error" | "neutral" | "info";
+
+const VERDICT_TONES: Record<
   NonNullable<Applicant["evaluationVerdict"]>,
-  string
+  BadgeTone
 > = {
-  meets_requirements: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  partially_meets_requirements: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  does_not_meet_requirements: "bg-red-500/10 text-red-600 dark:text-red-400",
+  meets_requirements: "success",
+  partially_meets_requirements: "warning",
+  does_not_meet_requirements: "error",
 };
 
 const VERDICT_LABELS: Record<
@@ -25,21 +29,22 @@ const VERDICT_LABELS: Record<
   does_not_meet_requirements: "Does Not Meet Requirements",
 };
 
-const STATUS_STYLES: Record<Applicant["status"], string> = {
-  applied: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-  approved: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  completed: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-  rejected: "bg-red-500/10 text-red-600 dark:text-red-400",
+// Same tones MyTasksList.tsx uses for these exact statuses.
+const STATUS_TONES: Record<Applicant["status"], BadgeTone> = {
+  applied: "info",
+  approved: "success",
+  completed: "success",
+  rejected: "error",
 };
 
-const PAYOUT_STATUS_STYLES: Record<
+const PAYOUT_STATUS_TONES: Record<
   "completed" | "failed" | "cancelled" | "retrying",
-  string
+  BadgeTone
 > = {
-  completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  failed: "bg-red-500/10 text-red-600 dark:text-red-400",
-  cancelled: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
-  retrying: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+  completed: "success",
+  failed: "error",
+  cancelled: "neutral",
+  retrying: "warning",
 };
 
 const PAYOUT_STATUS_LABELS: Record<
@@ -52,10 +57,10 @@ const PAYOUT_STATUS_LABELS: Record<
   retrying: "Retrying payout",
 };
 
-const RISK_STYLES: Record<NonNullable<Applicant["fraudRiskLevel"]>, string> = {
-  low: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  medium: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  high: "bg-red-500/10 text-red-600 dark:text-red-400",
+const RISK_TONES: Record<NonNullable<Applicant["fraudRiskLevel"]>, BadgeTone> = {
+  low: "success",
+  medium: "warning",
+  high: "error",
 };
 
 const RISK_LABELS: Record<NonNullable<Applicant["fraudRiskLevel"]>, string> = {
@@ -72,16 +77,23 @@ export function ApplicantsList({
   applicants: Applicant[];
 }) {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
+    <Card>
+      <h2 className="border-b border-border px-5 py-4 text-sm font-semibold text-foreground">
         Applicants
       </h2>
 
       {applicants.length > 0 ? (
-        <ul className="divide-y divide-black/10 dark:divide-white/10">
+        <ul className="divide-y divide-border">
           {applicants.map((applicant) => (
             <li key={applicant.applicationId} className="flex flex-col gap-3 px-5 py-4">
-              <div className="flex items-center justify-between gap-4">
+              {/* flex-wrap (not flex-shrink-0 on the actions group) is the
+                  actual mobile fix: once the status badge + action buttons
+                  no longer fit beside the identity block, they drop to
+                  their own row(s) instead of compressing the applicant's
+                  name/date into a sliver. items-start (not items-center)
+                  so a wrapped second row aligns under the first rather than
+                  trying to vertically center against it. */}
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">
                     {applicant.applicant}
@@ -90,12 +102,10 @@ export function ApplicantsList({
                     Applied {applicant.appliedAt}
                   </p>
                 </div>
-                <div className="flex flex-shrink-0 items-center gap-3">
-                  <span
-                    className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STATUS_STYLES[applicant.status]}`}
-                  >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={STATUS_TONES[applicant.status]} className="capitalize">
                     {applicant.status}
-                  </span>
+                  </Badge>
                   {applicant.status === "applied" && (
                     <>
                       <RejectApplicationButton
@@ -139,16 +149,14 @@ export function ApplicantsList({
                     applicant.payoutStatus === "failed" ||
                     applicant.payoutStatus === "cancelled" ||
                     applicant.payoutStatus === "retrying") && (
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${PAYOUT_STATUS_STYLES[applicant.payoutStatus]}`}
-                    >
+                    <Badge tone={PAYOUT_STATUS_TONES[applicant.payoutStatus]}>
                       {PAYOUT_STATUS_LABELS[applicant.payoutStatus]}
-                    </span>
+                    </Badge>
                   )}
                 </div>
               </div>
               {applicant.submissionContent && (
-                <div className="flex flex-col gap-2 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-2 dark:border-white/10 dark:bg-white/[0.02]">
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted px-3 py-2">
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">
                     <span className="font-medium text-foreground">
                       Submission:{" "}
@@ -157,11 +165,9 @@ export function ApplicantsList({
                   </p>
                   {applicant.evaluationVerdict ? (
                     <div className="flex flex-col items-start gap-1">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${VERDICT_STYLES[applicant.evaluationVerdict]}`}
-                      >
+                      <Badge tone={VERDICT_TONES[applicant.evaluationVerdict]}>
                         {VERDICT_LABELS[applicant.evaluationVerdict]}
-                      </span>
+                      </Badge>
                       {applicant.evaluationFeedback && (
                         <p className="text-xs text-zinc-600 dark:text-zinc-400">
                           {applicant.evaluationFeedback}
@@ -177,14 +183,12 @@ export function ApplicantsList({
                 </div>
               )}
               {applicant.submissionContent && (
-                <div className="flex flex-col gap-2 rounded-lg border border-black/10 bg-black/[0.02] px-3 py-2 dark:border-white/10 dark:bg-white/[0.02]">
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted px-3 py-2">
                   {applicant.fraudRiskLevel ? (
                     <div className="flex flex-col items-start gap-1">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${RISK_STYLES[applicant.fraudRiskLevel]}`}
-                      >
+                      <Badge tone={RISK_TONES[applicant.fraudRiskLevel]}>
                         {RISK_LABELS[applicant.fraudRiskLevel]}
-                      </span>
+                      </Badge>
                       {applicant.fraudExplanation && (
                         <p className="text-xs text-zinc-600 dark:text-zinc-400">
                           {applicant.fraudExplanation}
@@ -207,6 +211,6 @@ export function ApplicantsList({
           No applicants yet.
         </p>
       )}
-    </div>
+    </Card>
   );
 }

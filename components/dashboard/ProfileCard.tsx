@@ -2,17 +2,18 @@
 
 import { useWallet } from "@/hooks/useWallet";
 import { truncateAddress } from "@/lib/utils/address";
+import { Card } from "@/components/ui/Card";
 
 export function ProfileCard() {
   const { address, isConnected } = useWallet();
 
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-black/10 p-6 dark:border-white/10">
-      <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-black/5 text-lg font-semibold text-foreground dark:bg-white/10">
+    <Card className="flex items-center gap-4 p-6 shadow-sm">
+      <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-primary/10 text-xl font-semibold text-primary">
         {isConnected && address ? address.slice(2, 4).toUpperCase() : "?"}
       </div>
       <div className="min-w-0">
-        <p className="truncate text-lg font-semibold text-foreground">
+        <p className="truncate text-xl font-semibold text-foreground">
           {isConnected && address
             ? truncateAddress(address)
             : "Wallet not connected"}
@@ -21,6 +22,6 @@ export function ProfileCard() {
           Task marketplace contributor
         </p>
       </div>
-    </div>
+    </Card>
   );
 }

@@ -1,22 +1,26 @@
 import type { Payout } from "@/types/dashboard";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
 
-const STATUS_STYLES: Record<Payout["status"], string> = {
-  completed: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  pending: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  failed: "bg-red-500/10 text-red-600 dark:text-red-400",
-  cancelled: "bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
-  retrying: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+// Same tones MyTasksList.tsx already uses for these exact statuses -- one
+// payout state must look the same everywhere it appears in the app.
+const STATUS_TONES: Record<Payout["status"], "success" | "warning" | "error" | "neutral"> = {
+  completed: "success",
+  pending: "warning",
+  failed: "error",
+  cancelled: "neutral",
+  retrying: "warning",
 };
 
 export function PayoutHistory({ payouts }: { payouts: Payout[] }) {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
+    <Card className="shadow-sm">
+      <h2 className="border-b border-border px-5 py-4 text-sm font-semibold text-foreground">
         Payout History
       </h2>
 
       {payouts.length > 0 ? (
-        <ul className="divide-y divide-black/10 dark:divide-white/10">
+        <ul className="divide-y divide-border">
           {payouts.map((payout) => (
             <li
               key={payout.id}
@@ -26,7 +30,7 @@ export function PayoutHistory({ payouts }: { payouts: Payout[] }) {
               // pseudo-class match on the URL fragment -- no JS, no new
               // state -- so landing here from that link is visually
               // obvious for a moment, then fades back to the normal row.
-              className="flex items-center justify-between gap-4 px-5 py-4 target:bg-emerald-500/[0.06] target:ring-1 target:ring-inset target:ring-emerald-500/30"
+              className="flex flex-wrap items-start justify-between gap-3 px-5 py-4 target:bg-success/[0.06] target:ring-1 target:ring-inset target:ring-success/30"
             >
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-foreground">
@@ -34,13 +38,11 @@ export function PayoutHistory({ payouts }: { payouts: Payout[] }) {
                 </p>
                 <p className="mt-0.5 text-xs text-zinc-500">{payout.date}</p>
               </div>
-              <div className="flex flex-shrink-0 items-center gap-3">
-                <span
-                  className={`rounded-full px-2.5 py-1 text-xs font-medium capitalize ${STATUS_STYLES[payout.status]}`}
-                >
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge tone={STATUS_TONES[payout.status]} className="capitalize">
                   {payout.status}
-                </span>
-                <span className="text-sm font-semibold text-foreground">
+                </Badge>
+                <span className="text-base font-semibold text-primary">
                   {payout.amountUsdc.toFixed(2)} USDC
                 </span>
               </div>
@@ -49,9 +51,9 @@ export function PayoutHistory({ payouts }: { payouts: Payout[] }) {
         </ul>
       ) : (
         <p className="px-5 py-8 text-center text-sm text-zinc-500">
-          No payouts yet.
+          No payouts yet. Completed work shows up here once it&apos;s paid.
         </p>
       )}
-    </div>
+    </Card>
   );
 }

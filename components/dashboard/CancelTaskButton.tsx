@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/Button";
 
 type Status = "idle" | "confirming" | "loading" | "error";
 
@@ -37,36 +38,28 @@ export function CancelTaskButton({ taskId }: { taskId: string }) {
     return (
       <div className="flex flex-shrink-0 items-center gap-2">
         <span className="text-xs text-zinc-500">Cancel this task?</span>
-        <button
-          type="button"
-          onClick={handleCancel}
-          className="inline-flex items-center justify-center rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-red-700"
-        >
+        <Button variant="destructive" size="sm" onClick={handleCancel}>
           Confirm
-        </button>
-        <button
-          type="button"
-          onClick={() => setStatus("idle")}
-          className="inline-flex items-center justify-center rounded-full border border-black/10 px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
-        >
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setStatus("idle")}>
           Back
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
+      <Button
+        variant="destructive"
+        size="sm"
         onClick={() => setStatus("confirming")}
         disabled={status === "loading"}
-        className="inline-flex items-center justify-center rounded-full border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-400"
       >
         {status === "loading" ? "Cancelling…" : "Cancel Task"}
-      </button>
+      </Button>
       {status === "error" && error && (
-        <p className="max-w-[16rem] text-right text-xs text-red-600 dark:text-red-400">
+        <p className="max-w-[16rem] text-right text-xs text-error">
           {error}
         </p>
       )}

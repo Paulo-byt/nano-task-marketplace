@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/hooks/useWallet";
 import { EarningsSummaryGrid } from "@/components/dashboard/EarningsSummaryGrid";
 import { PayoutHistory } from "@/components/dashboard/PayoutHistory";
+import { StateCard } from "@/components/ui/StateCard";
+import { Button } from "@/components/ui/Button";
 import type { EarningsSummary, Payout } from "@/types/dashboard";
 
 const EMPTY_SUMMARY: EarningsSummary = {
@@ -26,15 +28,38 @@ async function fetchEarnings(): Promise<{
   return response.json();
 }
 
-function StateCard({ message }: { message: string }) {
+// Mirrors EarningsSummaryGrid's 4-card grid and PayoutHistory's header +
+// row shape, so the page doesn't visibly jump once real data arrives.
+function EarningsSkeleton() {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
-        Earnings
-      </h2>
-      <p className="px-5 py-8 text-center text-sm text-zinc-500">
-        {message}
-      </p>
+    <div role="status" aria-label="Loading earnings">
+      <span className="sr-only">Loading earnings…</span>
+      <div aria-hidden="true" className="flex flex-col gap-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="rounded-xl border border-border bg-surface p-5">
+              <div className="h-3 w-20 animate-pulse rounded bg-surface-muted" />
+              <div className="mt-3 h-7 w-16 animate-pulse rounded bg-surface-muted" />
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border border-border bg-surface">
+          <div className="border-b border-border px-5 py-4">
+            <div className="h-4 w-28 animate-pulse rounded bg-surface-muted" />
+          </div>
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="flex items-center justify-between gap-4 px-5 py-4">
+                <div className="flex flex-col gap-2">
+                  <div className="h-4 w-40 animate-pulse rounded bg-surface-muted" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-surface-muted" />
+                </div>
+                <div className="h-6 w-20 animate-pulse rounded-full bg-surface-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -42,27 +67,45 @@ function StateCard({ message }: { message: string }) {
 export function EarningsContainer() {
   const { address, isConnected, isAuthenticated } = useWallet();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["earnings", address],
     queryFn: fetchEarnings,
     enabled: isAuthenticated,
   });
 
   if (!isConnected) {
-    return <StateCard message="Connect your wallet to see your earnings." />;
+    return (
+      <StateCard
+        title="Earnings"
+        message="Connect your wallet to see your earnings."
+        className="shadow-sm"
+      />
+    );
   }
 
   if (!isAuthenticated) {
-    return <StateCard message="Sign in to see your earnings." />;
+    return (
+      <StateCard
+        title="Earnings"
+        message="Sign in to see your earnings."
+        className="shadow-sm"
+      />
+    );
   }
 
   if (isLoading) {
-    return <StateCard message="Loading your earnings…" />;
+    return <EarningsSkeleton />;
   }
 
   if (isError) {
     return (
-      <StateCard message="Couldn't load your earnings. Try refreshing the page." />
+      <StateCard title="Earnings" message="We couldn't load your earnings." className="shadow-sm">
+        <div className="mt-4">
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </div>
+      </StateCard>
     );
   }
 

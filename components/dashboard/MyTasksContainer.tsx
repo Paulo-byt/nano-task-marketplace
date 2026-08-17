@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/hooks/useWallet";
 import { MyTasksList } from "@/components/dashboard/MyTasksList";
+import { StateCard } from "@/components/ui/StateCard";
+import { Button } from "@/components/ui/Button";
 import type { MyTask } from "@/types/application";
 
 async function fetchMyTasks(): Promise<MyTask[]> {
@@ -16,15 +18,31 @@ async function fetchMyTasks(): Promise<MyTask[]> {
   return data.tasks as MyTask[];
 }
 
-function StateCard({ message }: { message: string }) {
+// Mirrors MyTasksList's own Card-with-header, divided-row shape.
+function MyTasksSkeleton() {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
-        Applied Tasks
-      </h2>
-      <p className="px-5 py-8 text-center text-sm text-zinc-500">
-        {message}
-      </p>
+    <div
+      role="status"
+      aria-label="Loading applied tasks"
+      className="rounded-xl border border-border bg-surface"
+    >
+      <span className="sr-only">Loading your applications…</span>
+      <div aria-hidden="true">
+        <div className="border-b border-border px-5 py-4">
+          <div className="h-4 w-28 animate-pulse rounded bg-surface-muted" />
+        </div>
+        <div className="divide-y divide-border">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="flex items-center justify-between gap-4 px-5 py-4">
+              <div className="flex flex-col gap-2">
+                <div className="h-4 w-44 animate-pulse rounded bg-surface-muted" />
+                <div className="h-3 w-24 animate-pulse rounded bg-surface-muted" />
+              </div>
+              <div className="h-6 w-20 animate-pulse rounded-full bg-surface-muted" />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -32,7 +50,7 @@ function StateCard({ message }: { message: string }) {
 export function MyTasksContainer() {
   const { address, isConnected, isAuthenticated } = useWallet();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["my-tasks", address],
     queryFn: fetchMyTasks,
     enabled: isAuthenticated,
@@ -40,21 +58,41 @@ export function MyTasksContainer() {
 
   if (!isConnected) {
     return (
-      <StateCard message="Connect your wallet to see the tasks you've applied for." />
+      <StateCard
+        title="Applied Tasks"
+        message="Connect your wallet to see the tasks you've applied for."
+        className="shadow-sm"
+      />
     );
   }
 
   if (!isAuthenticated) {
-    return <StateCard message="Sign in to see your tasks." />;
+    return (
+      <StateCard
+        title="Applied Tasks"
+        message="Sign in to see your tasks."
+        className="shadow-sm"
+      />
+    );
   }
 
   if (isLoading) {
-    return <StateCard message="Loading your applications…" />;
+    return <MyTasksSkeleton />;
   }
 
   if (isError) {
     return (
-      <StateCard message="Couldn't load your applications. Try refreshing the page." />
+      <StateCard
+        title="Applied Tasks"
+        message="We couldn't load your applications."
+        className="shadow-sm"
+      >
+        <div className="mt-4">
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </div>
+      </StateCard>
     );
   }
 

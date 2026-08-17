@@ -4,7 +4,7 @@ import { ConfirmApplicationButton } from "@/components/marketplace/ConfirmApplic
 
 export function ApplyConfirmation({ task }: { task: Task }) {
   return (
-    <div className="flex flex-col gap-6 rounded-xl border border-black/10 bg-background p-6 dark:border-white/10 sm:p-8">
+    <div className="flex flex-col gap-6 rounded-xl border border-border bg-surface p-6 shadow-sm sm:p-8">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Apply for this task
@@ -15,23 +15,20 @@ export function ApplyConfirmation({ task }: { task: Task }) {
         </p>
       </div>
 
-      <dl className="grid grid-cols-2 gap-4 border-y border-black/10 py-5 dark:border-white/10 sm:grid-cols-4">
-        <div className="col-span-2 sm:col-span-4">
-          <dt className="text-xs uppercase tracking-wide text-zinc-500">
-            Task
-          </dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
+      <div className="flex flex-col gap-4 rounded-lg bg-surface-muted p-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Task</p>
+          <p className="mt-1 truncate text-sm font-semibold text-foreground">
             {task.title}
-          </dd>
+          </p>
         </div>
-        <div>
-          <dt className="text-xs uppercase tracking-wide text-zinc-500">
-            Reward
-          </dt>
-          <dd className="mt-1 text-sm font-semibold text-foreground">
-            {task.rewardUsdc.toFixed(2)} USDC
-          </dd>
-        </div>
+        <p className="shrink-0 text-2xl font-bold text-primary sm:text-right">
+          {task.rewardUsdc.toFixed(2)}{" "}
+          <span className="text-sm font-medium text-zinc-500">USDC</span>
+        </p>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-4 border-y border-border py-5">
         <div>
           <dt className="text-xs uppercase tracking-wide text-zinc-500">
             Category
@@ -57,7 +54,7 @@ export function ApplyConfirmation({ task }: { task: Task }) {
         />
         <Link
           href={`/marketplace/${task.id}`}
-          className="inline-flex flex-1 items-center justify-center rounded-full border border-black/10 px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
+          className="inline-flex flex-1 items-center justify-center rounded-full border border-border px-6 py-3 text-sm font-semibold text-foreground transition-colors hover:bg-surface-muted"
         >
           Cancel
         </Link>

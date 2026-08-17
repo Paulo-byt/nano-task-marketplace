@@ -3,17 +3,42 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { cn } from "@/components/ui/cn";
 
-const SIDEBAR_LINKS = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Marketplace", href: "/marketplace" },
-  { label: "My Tasks", href: "/dashboard/my-tasks" },
-  { label: "Posted Tasks", href: "/dashboard/posted-tasks" },
-  { label: "Earnings", href: "/dashboard/earnings" },
-  { label: "Profile", href: "/dashboard/profile" },
-  { label: "Notifications", href: "/dashboard/notifications" },
-  { label: "Settings", href: "/dashboard/settings" },
+function isUnderPath(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+interface SidebarLink {
+  label: string;
+  href: string;
+  isActive: (pathname: string) => boolean;
+}
+
+// Marketplace covers the whole browse/detail/apply workspace but
+// deliberately excludes /marketplace/new -- that's Create Task's own
+// destination below, not a Marketplace browsing state.
+const SIDEBAR_LINKS: SidebarLink[] = [
+  {
+    label: "Marketplace",
+    href: "/marketplace",
+    isActive: (pathname) =>
+      isUnderPath(pathname, "/marketplace") &&
+      !isUnderPath(pathname, "/marketplace/new"),
+  },
+  {
+    label: "My Tasks",
+    href: "/dashboard/my-tasks",
+    isActive: (pathname) => isUnderPath(pathname, "/dashboard/my-tasks"),
+  },
+  {
+    label: "Earnings",
+    href: "/dashboard/earnings",
+    isActive: (pathname) => isUnderPath(pathname, "/dashboard/earnings"),
+  },
 ];
+
+const CREATE_TASK_HREF = "/marketplace/new";
 
 function MenuIcon() {
   return (
@@ -65,15 +90,17 @@ export function Sidebar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen]);
 
+  const isCreateTaskActive = pathname === CREATE_TASK_HREF;
+
   return (
     <>
-      <div className="border-b border-black/10 p-4 dark:border-white/10 md:hidden">
+      <div className="border-b border-border p-4 md:hidden">
         <button
           type="button"
           onClick={() => setIsOpen(true)}
           aria-expanded={isOpen}
           aria-controls="dashboard-sidebar"
-          className="inline-flex items-center gap-2 rounded-md border border-black/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-black/5 dark:border-white/15 dark:hover:bg-white/5"
+          className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-surface-muted"
         >
           <MenuIcon />
           Menu
@@ -81,6 +108,12 @@ export function Sidebar() {
       </div>
 
       {isOpen && (
+        // Deliberately a raw, theme-invariant black (not a token): a scrim
+        // dims whatever's behind it regardless of light/dark mode, unlike
+        // every other color in this file. --foreground itself flips
+        // between the two (see Button.tsx's own "primary" variant), so
+        // bg-foreground/30 here would render as a translucent WHITE
+        // overlay in dark mode -- visibly wrong, not a token upgrade.
         <div
           onClick={() => setIsOpen(false)}
           aria-hidden="true"
@@ -90,7 +123,7 @@ export function Sidebar() {
 
       <aside
         id="dashboard-sidebar"
-        className={`fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-black/10 bg-background px-4 py-6 transition-transform duration-200 ease-in-out dark:border-white/10 md:static md:z-auto md:w-56 md:translate-x-0 md:transition-none ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 overflow-y-auto border-r border-border bg-background px-4 py-6 transition-transform duration-200 ease-in-out md:static md:z-auto md:w-56 md:translate-x-0 md:transition-none ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -108,23 +141,46 @@ export function Sidebar() {
 
         <nav aria-label="Dashboard navigation" className="flex flex-col gap-1">
           {SIDEBAR_LINKS.map((link) => {
-            const isActive = pathname === link.href;
+            const isActive = link.isActive(pathname);
             return (
               <Link
                 key={link.href}
                 href={link.href}
                 onClick={() => setIsOpen(false)}
                 aria-current={isActive ? "page" : undefined}
-                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                className={cn(
+                  "rounded-md border-l-2 px-3 py-2 text-sm font-medium transition-colors",
                   isActive
-                    ? "bg-black/5 text-foreground visited:text-foreground dark:bg-white/5"
-                    : "text-zinc-600 visited:text-zinc-600 hover:bg-black/5 hover:text-foreground dark:text-zinc-400 dark:visited:text-zinc-400 dark:hover:bg-white/5"
-                }`}
+                    ? "border-primary text-primary visited:text-primary"
+                    : "border-transparent text-zinc-600 visited:text-zinc-600 hover:bg-surface-muted hover:text-foreground dark:text-zinc-400 dark:visited:text-zinc-400"
+                )}
               >
                 {link.label}
               </Link>
             );
           })}
+
+          <div className="my-3 border-t border-border" aria-hidden="true" />
+
+          {/* Prominent action, not an ordinary destination -- deliberately
+              not the Button primitive: Button's href/Link mode only
+              forwards href/target/rel, so it can't carry the onClick this
+              drawer needs for close-on-navigate, or aria-current for the
+              active route. Styled to match Button's brand/lg look exactly
+              (see components/ui/Button.tsx's own "brand" variant), without
+              modifying that primitive. */}
+          <Link
+            href={CREATE_TASK_HREF}
+            onClick={() => setIsOpen(false)}
+            aria-current={isCreateTaskActive ? "page" : undefined}
+            className={cn(
+              "inline-flex items-center justify-center rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground visited:text-primary-foreground transition-colors hover:opacity-90",
+              isCreateTaskActive &&
+                "ring-2 ring-primary ring-offset-2 ring-offset-background"
+            )}
+          >
+            + Create Task
+          </Link>
         </nav>
       </aside>
     </>

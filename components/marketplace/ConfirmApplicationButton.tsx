@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
 import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
+import { Button } from "@/components/ui/Button";
 import type { Task } from "@/types/task";
 
 type Status =
@@ -111,12 +111,9 @@ export function ConfirmApplicationButton({
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           You&apos;ve already applied to this task.
         </p>
-        <Link
-          href="/dashboard/my-tasks"
-          className="inline-flex flex-1 items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90"
-        >
+        <Button href="/dashboard/my-tasks" variant="brand" size="lg" className="flex-1">
           View My Tasks
-        </Link>
+        </Button>
       </div>
     );
   }
@@ -127,12 +124,9 @@ export function ConfirmApplicationButton({
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           This task is no longer accepting applications.
         </p>
-        <Link
-          href="/marketplace"
-          className="inline-flex flex-1 items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90"
-        >
+        <Button href="/marketplace" variant="brand" size="lg" className="flex-1">
           Back to Marketplace
-        </Link>
+        </Button>
       </div>
     );
   }
@@ -149,16 +143,17 @@ export function ConfirmApplicationButton({
 
   return (
     <div className="flex flex-1 flex-col gap-2">
-      <button
-        type="button"
+      <Button
+        variant="brand"
+        size="lg"
+        className="flex-1"
         onClick={handleConfirm}
         disabled={status === "loading"}
-        className="inline-flex flex-1 items-center justify-center rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "loading" ? "Applying…" : "Confirm Application"}
-      </button>
+      </Button>
       {status === "error" && (
-        <p className="text-sm text-red-600 dark:text-red-400">
+        <p className="text-sm text-error">
           Something went wrong. Please try again.
         </p>
       )}

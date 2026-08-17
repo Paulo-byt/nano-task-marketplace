@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/Button";
 
 type Status = "idle" | "loading" | "error";
 
@@ -44,16 +45,16 @@ export function RejectApplicationButton({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <button
-        type="button"
+      <Button
+        variant="destructive"
+        size="sm"
         onClick={handleReject}
         disabled={status === "loading"}
-        className="inline-flex items-center justify-center rounded-full border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60 dark:text-red-400"
       >
         {status === "loading" ? "Rejecting…" : "Reject"}
-      </button>
+      </Button>
       {status === "error" && error && (
-        <p className="max-w-[16rem] text-right text-xs text-red-600 dark:text-red-400">
+        <p className="max-w-[16rem] text-right text-xs text-error">
           {error}
         </p>
       )}

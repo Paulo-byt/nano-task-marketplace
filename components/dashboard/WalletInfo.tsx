@@ -1,19 +1,26 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useWallet } from "@/hooks/useWallet";
 import { truncateAddress } from "@/lib/utils/address";
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
 
 export function WalletInfo() {
   const { address, isConnected, chainName, connectorName } = useWallet();
 
-  const rows = [
+  const rows: { label: string; value: ReactNode }[] = [
     {
       label: "Wallet Address",
       value: address ? truncateAddress(address) : "Not connected",
     },
     {
       label: "Connection Status",
-      value: isConnected ? "Connected" : "Not connected",
+      value: (
+        <Badge tone={isConnected ? "success" : "neutral"}>
+          {isConnected ? "Connected" : "Not connected"}
+        </Badge>
+      ),
     },
     {
       label: "Network",
@@ -26,13 +33,13 @@ export function WalletInfo() {
   ];
 
   return (
-    <div className="rounded-xl border border-black/10 p-5 dark:border-white/10">
+    <Card className="p-5 shadow-sm">
       <h2 className="text-sm font-semibold text-foreground">Wallet</h2>
       <dl className="mt-4 flex flex-col gap-3">
         {rows.map((row) => (
           <div
             key={row.label}
-            className="flex items-center justify-between gap-4"
+            className="flex flex-wrap items-center justify-between gap-3"
           >
             <dt className="text-sm text-zinc-600 dark:text-zinc-400">
               {row.label}
@@ -43,6 +50,6 @@ export function WalletInfo() {
           </div>
         ))}
       </dl>
-    </div>
+    </Card>
   );
 }
