@@ -3,6 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useWallet } from "@/hooks/useWallet";
 import { PostedTasksList } from "@/components/dashboard/PostedTasksList";
+import { StateCard } from "@/components/ui/StateCard";
+import { Button } from "@/components/ui/Button";
 import type { PostedTask } from "@/types/postedTask";
 
 async function fetchPostedTasks(): Promise<PostedTask[]> {
@@ -16,15 +18,38 @@ async function fetchPostedTasks(): Promise<PostedTask[]> {
   return data.tasks as PostedTask[];
 }
 
-function StateCard({ message }: { message: string }) {
+// Mirrors PostedTasksList's own Card-with-header, sm:flex-row row shape.
+function PostedTasksSkeleton() {
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <h2 className="border-b border-black/10 px-5 py-4 text-sm font-semibold text-foreground dark:border-white/10">
-        Posted Tasks
-      </h2>
-      <p className="px-5 py-8 text-center text-sm text-zinc-500">
-        {message}
-      </p>
+    <div
+      role="status"
+      aria-label="Loading posted tasks"
+      className="rounded-xl border border-border bg-surface shadow-sm"
+    >
+      <span className="sr-only">Loading your posted tasks…</span>
+      <div aria-hidden="true">
+        <div className="border-b border-border px-5 py-4">
+          <div className="h-4 w-28 animate-pulse rounded bg-surface-muted" />
+        </div>
+        <div className="divide-y divide-border">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div
+              key={index}
+              className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex flex-col gap-2">
+                <div className="h-4 w-44 animate-pulse rounded bg-surface-muted" />
+                <div className="h-3 w-32 animate-pulse rounded bg-surface-muted" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-5 w-20 animate-pulse rounded-full bg-surface-muted" />
+                <div className="h-4 w-16 animate-pulse rounded bg-surface-muted" />
+                <div className="h-7 w-24 animate-pulse rounded-full bg-surface-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -32,7 +57,7 @@ function StateCard({ message }: { message: string }) {
 export function PostedTasksContainer() {
   const { address, isConnected, isAuthenticated } = useWallet();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["posted-tasks", address],
     queryFn: fetchPostedTasks,
     enabled: isAuthenticated,
@@ -40,21 +65,41 @@ export function PostedTasksContainer() {
 
   if (!isConnected) {
     return (
-      <StateCard message="Connect your wallet to see the tasks you've posted." />
+      <StateCard
+        title="Posted Tasks"
+        message="Connect your wallet to see the tasks you've posted."
+        className="shadow-sm"
+      />
     );
   }
 
   if (!isAuthenticated) {
-    return <StateCard message="Sign in to see your posted tasks." />;
+    return (
+      <StateCard
+        title="Posted Tasks"
+        message="Sign in to see your posted tasks."
+        className="shadow-sm"
+      />
+    );
   }
 
   if (isLoading) {
-    return <StateCard message="Loading your posted tasks…" />;
+    return <PostedTasksSkeleton />;
   }
 
   if (isError) {
     return (
-      <StateCard message="Couldn't load your posted tasks. Try refreshing the page." />
+      <StateCard
+        title="Posted Tasks"
+        message="We couldn't load your posted tasks."
+        className="shadow-sm"
+      >
+        <div className="mt-4">
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            Try again
+          </Button>
+        </div>
+      </StateCard>
     );
   }
 

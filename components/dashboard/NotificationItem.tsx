@@ -9,9 +9,14 @@ const TYPE_TONES: Record<Notification["type"], "info" | "success" | "neutral"> =
   system: "neutral",
 };
 
+// 11H: label only -- "payment" stays the underlying type/db value (see
+// db/schema.ts's notificationTypeEnum), matched everywhere else in this
+// file and in mockNotificationService.ts. Only the displayed text changes,
+// to match the "Payout" language already used by Payout History, Release/
+// Retry Payout, and the Earnings page.
 const TYPE_LABELS: Record<Notification["type"], string> = {
   task: "Task",
-  payment: "Payment",
+  payment: "Payout",
   wallet: "Wallet",
   system: "System",
 };
