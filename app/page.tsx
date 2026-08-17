@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -183,6 +184,13 @@ export default function Home() {
                 Create a Task
               </Button>
             </div>
+
+            <Link
+              href="/get-started"
+              className="mt-4 text-sm font-medium text-zinc-600 underline-offset-2 hover:text-foreground hover:underline dark:text-zinc-400"
+            >
+              New here? See how it works →
+            </Link>
           </div>
 
           {/* Product preview -- built entirely from Card/Badge, doing the
