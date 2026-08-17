@@ -131,4 +131,11 @@ export const RATE_LIMITS = {
   // flow that still submits a real Circle transaction) -- kept at the same
   // conservative limit as operatorTreasuryFund, not higher.
   operatorTreasuryAllowance: { limit: 10, windowMs: HOUR },
+  // 11E: no funds move, but still a write -- kept well above
+  // authenticatedRead's own ceiling since clicking through several
+  // notifications in a row is ordinary use, not abuse.
+  notificationMarkRead: { limit: 60, windowMs: MINUTE },
+  // A bulk action a user reaches for occasionally, not repeatedly -- same
+  // conservative posture as taskCancel.
+  notificationMarkAllRead: { limit: 30, windowMs: HOUR },
 } as const satisfies Record<string, RateLimitConfig>;

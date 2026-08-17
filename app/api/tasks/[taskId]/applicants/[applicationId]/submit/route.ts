@@ -5,11 +5,36 @@ import { getApplicationForApproval } from "@/services/applications/applicationsS
 import {
   createSubmission,
   DuplicateSubmissionError,
+  type SubmissionVerdict,
 } from "@/services/submissions/submissionsService";
 import { evaluatePlatformSubmissionIfNeeded } from "@/services/marketplace/platformSubmissionEvaluationService";
 import { processPlatformPayoutIfEligible } from "@/services/marketplace/platformPayoutService";
+import {
+  getTaskTemplateId,
+} from "@/services/marketplace/taskTemplatesService";
+import { getTaskForFunding } from "@/services/marketplace/mockTasks";
+import {
+  createWorkSubmittedNotification,
+  createSubmissionEvaluatedNotification,
+  createSubmissionReadyForReviewNotification,
+} from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
+
+// evaluatePlatformSubmissionIfNeeded's own decision vocabulary
+// (ACCEPTED/REJECTED/REVIEW) mirrors, but is not the same type as,
+// submissions.evaluation_verdict -- this maps it to the shared
+// SubmissionVerdict vocabulary the notification service and evaluate/
+// route.ts (the creator-manual path) both already speak, matching
+// exactly the ACCEPTED->meets_requirements / REJECTED->does_not_meet_requirements
+// / REVIEW->partially_meets_requirements mapping
+// platformSubmissionEvaluationService.ts uses internally for the same
+// submission's own stored verdict.
+const DECISION_TO_VERDICT: Record<string, SubmissionVerdict> = {
+  ACCEPTED: "meets_requirements",
+  REJECTED: "does_not_meet_requirements",
+  REVIEW: "partially_meets_requirements",
+};
 
 const MAX_CONTENT_LENGTH = 5000;
 
@@ -104,6 +129,37 @@ export async function POST(
   try {
     const submission = await createSubmission(applicationId, content);
 
+    // 11E: best-effort confirmation for the tasker -- never allowed to turn
+    // a successful submission into an error response.
+    try {
+      await createWorkSubmittedNotification(application.applicantId, taskId);
+    } catch (err) {
+      log.error("work_submitted_notification_failed", {
+        applicationId,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // 11E: creator-facing "ready for review" -- creator-owned tasks only.
+    // A platform-owned task's submissions are evaluated automatically
+    // below; there is no human creator with a session to review them.
+    try {
+      const templateId = await getTaskTemplateId(taskId);
+      if (!templateId) {
+        const task = await getTaskForFunding(taskId);
+        if (task) {
+          await createSubmissionReadyForReviewNotification(task.creatorId, taskId);
+        }
+      }
+    } catch (err) {
+      log.error("submission_ready_notification_failed", {
+        applicationId,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // M5: best-effort, synchronous -- the deterministic testnet evaluator
     // makes no network call (no Anthropic, no other provider), so there is
     // no reason to defer this to a background job the way an AI- or
@@ -114,6 +170,22 @@ export async function POST(
     // already takes (replenishTemplateIfNeeded, replenishPayloadSupplyIfNeeded).
     try {
       const evaluation = await evaluatePlatformSubmissionIfNeeded(applicationId);
+
+      if (evaluation.status === "processed") {
+        try {
+          await createSubmissionEvaluatedNotification(
+            application.applicantId,
+            taskId,
+            DECISION_TO_VERDICT[evaluation.decision]
+          );
+        } catch (err) {
+          log.error("submission_evaluated_notification_failed", {
+            applicationId,
+            taskId,
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
 
       if (evaluation.status === "processed" && evaluation.decision === "ACCEPTED") {
         // M6: a real on-chain payout can take long enough that running it

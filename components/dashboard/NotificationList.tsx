@@ -1,36 +1,53 @@
 import type { Notification } from "@/types/dashboard";
 import { NotificationItem } from "@/components/dashboard/NotificationItem";
+import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 
 export function NotificationList({
   notifications,
+  onMarkRead,
+  onMarkAllRead,
+  isMarkingAllRead,
 }: {
   notifications: Notification[];
+  onMarkRead: (id: string) => void;
+  onMarkAllRead: () => void;
+  isMarkingAllRead: boolean;
 }) {
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
-    <div className="rounded-xl border border-black/10 dark:border-white/10">
-      <div className="flex items-center justify-between border-b border-black/10 px-5 py-4 dark:border-white/10">
-        <h2 className="text-sm font-semibold text-foreground">
-          Notifications
-        </h2>
-        <span className="text-xs text-zinc-500">{unreadCount} unread</span>
+    <Card className="shadow-sm">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-foreground">Notifications</h2>
+          {unreadCount > 0 && (
+            <span className="text-xs text-zinc-500">
+              {unreadCount} unread
+            </span>
+          )}
+        </div>
+        {unreadCount > 0 && (
+          <Button
+            variant="link"
+            size="sm"
+            onClick={onMarkAllRead}
+            disabled={isMarkingAllRead}
+          >
+            Mark all as read
+          </Button>
+        )}
       </div>
 
-      {notifications.length > 0 ? (
-        <ul className="divide-y divide-black/10 dark:divide-white/10">
-          {notifications.map((notification) => (
-            <NotificationItem
-              key={notification.id}
-              notification={notification}
-            />
-          ))}
-        </ul>
-      ) : (
-        <p className="px-5 py-8 text-center text-sm text-zinc-500">
-          No notifications yet.
-        </p>
-      )}
-    </div>
+      <ul className="divide-y divide-border">
+        {notifications.map((notification) => (
+          <NotificationItem
+            key={notification.id}
+            notification={notification}
+            onMarkRead={onMarkRead}
+          />
+        ))}
+      </ul>
+    </Card>
   );
 }

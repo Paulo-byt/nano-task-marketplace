@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ConnectWalletButton } from "@/components/wallet/ConnectWalletButton";
 import { HeaderNav } from "@/components/layout/HeaderNav";
+import { HeaderNotifications } from "@/components/layout/HeaderNotifications";
 
 export function Header() {
   return (
@@ -29,7 +30,8 @@ export function Header() {
 
         <HeaderNav />
 
-        <div className="order-2 flex md:order-3 md:flex-1 md:justify-end">
+        <div className="order-2 flex items-center gap-2 md:order-3 md:flex-1 md:justify-end">
+          <HeaderNotifications />
           <ConnectWalletButton compact />
         </div>
       </div>

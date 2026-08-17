@@ -17,6 +17,10 @@ import { evaluatePayoutReceipt } from "@/lib/arc/verifyPayout";
 import { arcPublicClient } from "@/lib/arc/publicClient";
 import { arcTestnet } from "@/lib/arc/chains";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
+import {
+  createPayoutCompletedNotification,
+  createTaskCompletedNotification,
+} from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -236,6 +240,29 @@ export async function POST(
       applicationId,
       taskId,
       txHash,
+    });
+  }
+
+  // 11E: best-effort, appended after the already-successful, already-
+  // verified payout -- never allowed to turn it into an error response.
+  try {
+    await createPayoutCompletedNotification(application.applicantId, taskId);
+  } catch (err) {
+    log.error("payout_completed_notification_failed", {
+      payoutId: payout.payoutId,
+      applicationId,
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
+    await createTaskCompletedNotification(sessionUser.id, taskId);
+  } catch (err) {
+    log.error("task_completed_notification_failed", {
+      payoutId: payout.payoutId,
+      applicationId,
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
     });
   }
 

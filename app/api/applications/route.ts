@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
-import { getTaskById } from "@/services/marketplace/mockTasks";
+import { getTaskById, getTaskForFunding } from "@/services/marketplace/mockTasks";
 import { getSessionUser, SESSION_COOKIE_NAME } from "@/lib/auth/session";
 import {
   createApplication,
@@ -13,7 +13,10 @@ import {
   getTaskTemplateId,
   replenishTemplateIfNeeded,
 } from "@/services/marketplace/taskTemplatesService";
-import { createApplicationSubmittedNotification } from "@/services/dashboard/mockNotificationService";
+import {
+  createApplicationSubmittedNotification,
+  createNewApplicationNotification,
+} from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -138,6 +141,27 @@ export async function POST(request: Request) {
     await createApplicationSubmittedNotification(sessionUser.id, task.title);
   } catch (err) {
     log.error("create_application_notification_failed", {
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // 11E: creator-facing "someone applied" -- creator-owned tasks only.
+  // A platform-owned task's "creator" is the platform sentinel account,
+  // which has no session and no one reading its notifications. Fully
+  // independent read (own getTaskTemplateId/getTaskForFunding calls, not
+  // reused from the auto-approval branch below) so this best-effort block
+  // can never influence that branch's own behavior.
+  try {
+    const templateId = await getTaskTemplateId(taskId);
+    if (!templateId) {
+      const fundingRecord = await getTaskForFunding(taskId);
+      if (fundingRecord) {
+        await createNewApplicationNotification(fundingRecord.creatorId, taskId);
+      }
+    }
+  } catch (err) {
+    log.error("new_application_notification_failed", {
       taskId,
       message: err instanceof Error ? err.message : String(err),
     });

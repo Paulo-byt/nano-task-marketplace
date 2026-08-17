@@ -11,6 +11,7 @@ import {
   getTaskTemplateId,
   replenishTemplateIfNeeded,
 } from "@/services/marketplace/taskTemplatesService";
+import { createApplicationApprovedNotification } from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -94,6 +95,19 @@ export async function POST(
       }
     } catch (err) {
       log.error("approve_replenishment_check_failed", {
+        applicationId,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    // 11E: best-effort, appended after approval's own success -- never
+    // allowed to turn a successful approval into an error response,
+    // matching the replenishment check's own posture immediately above.
+    try {
+      await createApplicationApprovedNotification(application.applicantId, taskId);
+    } catch (err) {
+      log.error("approve_notification_failed", {
         applicationId,
         taskId,
         message: err instanceof Error ? err.message : String(err),

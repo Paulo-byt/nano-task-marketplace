@@ -12,6 +12,7 @@ import {
   markPayoutFailed,
 } from "@/services/payouts/payoutsService";
 import { releasePoolAllocationForPayout } from "@/services/marketplace/treasuryAllowanceService";
+import { createPayoutCompletedNotification } from "@/services/dashboard/mockNotificationService";
 import { preflightPayout, submitPayoutTransfer } from "@/lib/arc/payoutRelay";
 import { evaluatePayoutReceipt } from "@/lib/arc/verifyPayout";
 import { arcPublicClient } from "@/lib/arc/publicClient";
@@ -255,6 +256,22 @@ export async function processPlatformPayoutIfEligible(
       payoutId: payout.payoutId,
       applicationId,
       txHash,
+    });
+  }
+
+  // 11E: best-effort, same posture as releasePoolAllocationForPayout above
+  // -- the payout already succeeded and was already verified; a failure
+  // here must never be reported as a payout failure. No creator
+  // notification pair here (unlike the human-triggered payout/retry-payout
+  // routes): a platform-owned task's "creator" is the platform sentinel
+  // account, which has no session and no one reading its notifications.
+  try {
+    await createPayoutCompletedNotification(application.applicantId, application.taskId);
+  } catch (err) {
+    log.error("platform_payout_completed_notification_failed", {
+      payoutId: payout.payoutId,
+      applicationId,
+      message: err instanceof Error ? err.message : String(err),
     });
   }
 

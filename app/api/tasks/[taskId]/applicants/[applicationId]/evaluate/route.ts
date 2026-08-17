@@ -8,6 +8,7 @@ import {
   recordEvaluation,
 } from "@/services/submissions/submissionsService";
 import { evaluateSubmission, EvaluationError } from "@/lib/ai/evaluateSubmission";
+import { createSubmissionEvaluatedNotification } from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
 
@@ -113,6 +114,23 @@ export async function POST(
       applicationId,
       durationMs: Date.now() - startedAt,
     });
+
+    // 11E: best-effort, never allowed to turn a successful evaluation into
+    // an error response.
+    try {
+      await createSubmissionEvaluatedNotification(
+        application.applicantId,
+        taskId,
+        evaluation.verdict
+      );
+    } catch (err) {
+      log.error("evaluate_notification_failed", {
+        applicationId,
+        taskId,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return NextResponse.json(evaluation, { status: 200 });
   } catch (err) {
     log.error("evaluate_failed", {

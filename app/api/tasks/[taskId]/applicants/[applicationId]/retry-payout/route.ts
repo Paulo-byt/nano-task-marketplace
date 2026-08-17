@@ -18,8 +18,44 @@ import { evaluatePayoutReceipt, verifyPayoutTransaction } from "@/lib/arc/verify
 import { arcPublicClient } from "@/lib/arc/publicClient";
 import { arcTestnet } from "@/lib/arc/chains";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
+import {
+  createPayoutCompletedNotification,
+  createTaskCompletedNotification,
+} from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
 import { log } from "@/lib/log";
+
+// 11E: identical best-effort pair fired at both of this route's
+// success boundaries (reconciliation and a fresh resubmission) -- kept as
+// one shared helper so the two call sites can't drift out of sync.
+async function notifyPayoutCompleted(
+  applicantId: string,
+  creatorId: string,
+  taskId: string,
+  payoutId: string,
+  applicationId: string
+): Promise<void> {
+  try {
+    await createPayoutCompletedNotification(applicantId, taskId);
+  } catch (err) {
+    log.error("retry_payout_completed_notification_failed", {
+      payoutId,
+      applicationId,
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+  try {
+    await createTaskCompletedNotification(creatorId, taskId);
+  } catch (err) {
+    log.error("retry_task_completed_notification_failed", {
+      payoutId,
+      applicationId,
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 // The exact, unique reason string evaluatePayoutReceipt returns only when
 // receipt.status !== "success" (see lib/arc/verifyPayout.ts) -- the one
@@ -190,6 +226,14 @@ export async function POST(
         });
       }
 
+      await notifyPayoutCompleted(
+        application.applicantId,
+        sessionUser.id,
+        taskId,
+        payout.payoutId,
+        applicationId
+      );
+
       return NextResponse.json(
         { status: "completed", txHash: payout.txHash },
         { status: 200 }
@@ -324,6 +368,14 @@ export async function POST(
       txHash,
     });
   }
+
+  await notifyPayoutCompleted(
+    application.applicantId,
+    sessionUser.id,
+    taskId,
+    payout.payoutId,
+    applicationId
+  );
 
   return NextResponse.json({ status: "completed", txHash }, { status: 200 });
 }

@@ -6,7 +6,9 @@ import {
   getApplicationForApproval,
   rejectApplication,
 } from "@/services/applications/applicationsService";
+import { createApplicationRejectedNotification } from "@/services/dashboard/mockNotificationService";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rateLimit";
+import { log } from "@/lib/log";
 
 export async function POST(
   request: Request,
@@ -73,6 +75,18 @@ export async function POST(
       { error: "Application is no longer in a rejectable state." },
       { status: 409 }
     );
+  }
+
+  // 11E: best-effort, never allowed to turn a successful rejection into an
+  // error response.
+  try {
+    await createApplicationRejectedNotification(application.applicantId, taskId);
+  } catch (err) {
+    log.error("reject_notification_failed", {
+      applicationId,
+      taskId,
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return NextResponse.json({ status: "rejected" }, { status: 200 });
