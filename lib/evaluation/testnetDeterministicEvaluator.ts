@@ -4,6 +4,15 @@ import type {
   EvaluationProvider,
   EvaluationResult,
 } from "@/lib/evaluation/evaluationProvider";
+import {
+  resolveActiveTemplate,
+  type ActiveTemplateKey,
+  A2_GROUND_TRUTH,
+  A5_GROUND_TRUTH,
+  S4_GROUND_TRUTH,
+  R5_GROUND_TRUTH,
+  A4_GROUND_TRUTH,
+} from "@/lib/evaluation/platformGroundTruth";
 
 /**
  * Phase M5, Arc Testnet path: an EvaluationProvider that makes no network
@@ -28,6 +37,18 @@ import type {
  * told not to build. The remaining seven templates (open-ended writing and
  * research) always route to "review" -- deterministic rules cannot safely
  * judge them at all, and this file does not pretend otherwise.
+ *
+ * TESTER RELEASE (Option A) ADDITION: the paragraph above still describes
+ * this file's ORIGINAL behavior, still used unchanged for every template
+ * NOT in ACTIVE_TEMPLATE_IDS (the 6 paused templates' own already-in-flight
+ * applications, and any future/unknown template). For the 5 active-tier
+ * templates (A2/A5/S4/R5/A4), evaluateActiveTierSubmission below REPLACES
+ * the format-only check with a real ground-truth match against
+ * lib/evaluation/platformGroundTruth.ts, and never returns "review" --
+ * only "pass" or "fail". This is what makes REVIEW a genuinely reachable,
+ * permanent dead end for a platform-owned task's submission (no creator
+ * session ever exists to resolve it): the fix is to stop returning it for
+ * tester-visible active templates, not to build a resolution path for it.
  */
 
 const TEMPLATE_IDS = {
@@ -47,8 +68,7 @@ const TEMPLATE_IDS = {
 // Below this many characters of leftover text (after removing the matched
 // label word itself), a "justification" is treated as not really present --
 // deliberately small and conservative: this is a presence check, not a
-// quality bar. Ambiguous, short-but-real justifications are meant to land
-// in "review", not "fail".
+// quality bar.
 const MIN_JUSTIFICATION_LENGTH = 10;
 
 function escapeRegex(value: string): string {
@@ -56,10 +76,12 @@ function escapeRegex(value: string): string {
 }
 
 /**
- * Shared by every label-classification template (A2/A5/S4/R5): checks that
- * the submission contains exactly one of the task's own valid labels, plus
- * some non-trivial text beyond the label itself. Never claims the chosen
- * label is the correct one -- see this file's own top-of-file comment.
+ * Shared by every label-classification template (A2/A5/S4/R5, legacy path
+ * only): checks that the submission contains exactly one of the task's own
+ * valid labels, plus some non-trivial text beyond the label itself. Never
+ * claims the chosen label is the correct one -- see this file's own
+ * top-of-file comment. UNCHANGED from the pre-tester-release version; the
+ * active-tier path below has its own, stricter matcher.
  */
 function evaluateSingleLabelClassification(
   content: string,
@@ -133,6 +155,10 @@ const R5_LABELS = ["defi", "nft/gaming", "infrastructure", "dao tooling", "ident
 
 type EvaluatorFn = (input: EvaluationInput) => EvaluationResult;
 
+// Legacy, format-only path -- used ONLY for templates outside
+// ACTIVE_TEMPLATE_IDS (the 6 paused templates' own already-in-flight
+// applications). Byte-for-byte the same behavior as before the tester
+// release.
 const TEMPLATE_EVALUATORS: Record<string, EvaluatorFn> = {
   [TEMPLATE_IDS.A2]: (input) =>
     evaluateSingleLabelClassification(input.submissionContent, A2_LABELS),
@@ -142,9 +168,6 @@ const TEMPLATE_EVALUATORS: Record<string, EvaluatorFn> = {
     evaluateSingleLabelClassification(input.submissionContent, S4_LABELS),
   [TEMPLATE_IDS.R5]: (input) =>
     evaluateSingleLabelClassification(input.submissionContent, R5_LABELS),
-  // Open-ended templates: explicit entries (rather than relying purely on
-  // the fallback below) so the mapping stays a complete, reviewable list of
-  // all 11 templates, matching this file's own top-of-file claim.
   [TEMPLATE_IDS.W1]: alwaysReview,
   [TEMPLATE_IDS.W3]: alwaysReview,
   [TEMPLATE_IDS.W4]: alwaysReview,
@@ -154,8 +177,325 @@ const TEMPLATE_EVALUATORS: Record<string, EvaluatorFn> = {
   [TEMPLATE_IDS.S1]: alwaysReview,
 };
 
+// ---------------------------------------------------------------------------
+// Tester release (Option A): active-tier strict binary evaluator.
+// Never returns "review" -- only "pass" or "fail". Applies to A2/A5/S4/R5/A4
+// only, gated by ACTIVE_TEMPLATE_ID_SET in the dispatcher at the bottom of
+// this file.
+// ---------------------------------------------------------------------------
+
+/** A submission this short cannot contain a real answer for any active
+ * template -- used as an absolute floor, never as proof of correctness at
+ * the top end (a submission passing this check still has to clear the
+ * ground-truth match below). */
+const MIN_SUBMISSION_LENGTH = 3;
+
+const PROMPT_INJECTION_PATTERNS: readonly RegExp[] = [
+  /ignore\s+(all\s+|any\s+)?(the\s+|prior\s+|previous\s+|above\s+)?instructions/i,
+  /disregard\s+(the\s+)?(system|above|prior|previous)\b/i,
+  /you\s+are\s+now\s+(a|an)\b/i,
+  /\bnew\s+instructions?\s*:/i,
+  /\bsystem\s+prompt\b/i,
+  /override\s+(your\s+)?(instructions|rules|guidelines)/i,
+  /pretend\s+(you|to)\s+(are|be)\b/i,
+  /\bjailbreak\b/i,
+];
+
+function containsPromptInjection(content: string): boolean {
+  return PROMPT_INJECTION_PATTERNS.some((pattern) => pattern.test(content));
+}
+
+/** Catches "aaaaaaaa", keyboard-mash, and similar zero-effort spam: a long
+ * run of the same character, or an absolute floor on distinct characters
+ * used. Deliberately an absolute floor, not a unique-chars/length RATIO --
+ * a ratio decays with length for entirely ordinary prose too (English
+ * reuses its ~26-letter alphabet constantly over a long sentence), which a
+ * ratio-based check would misfire on; real gibberish/spam stays stuck at a
+ * handful of distinct characters no matter how long it is, which an
+ * absolute floor catches without that false-positive risk. */
+function isLowEntropySpam(content: string): boolean {
+  const trimmed = content.trim();
+  if (trimmed.length < 8) return false;
+
+  if (/(.)\1{7,}/.test(trimmed)) return true;
+
+  const nonSpace = trimmed.toLowerCase().replace(/\s/g, "");
+  if (nonSpace.length < 20) return false;
+  const uniqueChars = new Set(nonSpace).size;
+  return uniqueChars < 8;
+}
+
+/** Catches a submission that is mostly a verbatim copy of the task's own
+ * instructions/payload rather than an actual answer -- a normalized,
+ * whitespace-collapsed 40+ character run copied straight from the prompt
+ * is not something a genuine, independent answer would ordinarily contain
+ * by coincidence. */
+function isCopyOfPrompt(submission: string, referenceText: string): boolean {
+  const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const normSubmission = normalize(submission);
+  const normReference = normalize(referenceText);
+
+  const WINDOW = 40;
+  if (normSubmission.length < WINDOW || normReference.length < WINDOW) return false;
+
+  for (let i = 0; i + WINDOW <= normSubmission.length; i += 10) {
+    const chunk = normSubmission.slice(i, i + WINDOW);
+    if (normReference.includes(chunk)) return true;
+  }
+  return false;
+}
+
+/**
+ * Universal safety gate for the active tier -- runs before any
+ * template-specific ground-truth check. Any hit here is an immediate,
+ * unambiguous FAIL; nothing about ground truth needs to be consulted once
+ * one of these fires.
+ */
+function activeTierSafetyCheck(input: EvaluationInput): EvaluationResult | null {
+  const trimmed = input.submissionContent.trim();
+
+  if (trimmed.length < MIN_SUBMISSION_LENGTH) {
+    return { outcome: "fail", reason: "Submission is empty or too short to evaluate." };
+  }
+
+  if (containsPromptInjection(trimmed)) {
+    return {
+      outcome: "fail",
+      reason:
+        "Submission was not evaluated on its merits: it contains text attempting to " +
+        "redirect or override the evaluation process rather than answering the task.",
+    };
+  }
+
+  if (isLowEntropySpam(trimmed)) {
+    return { outcome: "fail", reason: "Submission does not contain a real answer." };
+  }
+
+  const referenceText = input.payloadContent
+    ? `${input.taskDescription} ${input.payloadContent}`
+    : input.taskDescription;
+  if (isCopyOfPrompt(trimmed, referenceText)) {
+    return {
+      outcome: "fail",
+      reason: "Submission largely repeats the task's own instructions rather than answering it.",
+    };
+  }
+
+  return null;
+}
+
+interface LabelMatch {
+  outcome: "fail" | "matched";
+  reason?: string;
+  label?: string;
+}
+
+/** Active-tier label extraction -- same core regex approach as the legacy
+ * evaluateSingleLabelClassification, but "multiple labels" and "no
+ * justification" resolve to FAIL here (never "review"), matching the
+ * tester-release requirement that these templates never return review. */
+function matchSingleLabel(content: string, validLabels: readonly string[]): LabelMatch {
+  const trimmed = content.trim();
+  const lower = trimmed.toLowerCase();
+  const matched = validLabels.filter((label) =>
+    new RegExp(`\\b${escapeRegex(label.toLowerCase())}\\b`).test(lower)
+  );
+
+  if (matched.length === 0) {
+    return {
+      outcome: "fail",
+      reason: `Submission does not contain any of the expected labels (${validLabels.join(", ")}).`,
+    };
+  }
+
+  if (matched.length > 1) {
+    return {
+      outcome: "fail",
+      reason: `Submission mentions multiple possible labels (${matched.join(
+        ", "
+      )}); a single unambiguous classification is required.`,
+    };
+  }
+
+  const withoutLabel = lower
+    .replace(new RegExp(`\\b${escapeRegex(matched[0].toLowerCase())}\\b`), "")
+    .trim();
+
+  if (withoutLabel.length < MIN_JUSTIFICATION_LENGTH) {
+    return {
+      outcome: "fail",
+      reason: `A label ("${matched[0]}") was identified, but no substantive justification accompanies it.`,
+    };
+  }
+
+  return { outcome: "matched", label: matched[0].toLowerCase() };
+}
+
+function evaluateClassificationActiveTier(
+  input: EvaluationInput,
+  validLabels: readonly string[],
+  groundTruth: Record<string, { acceptedLabels: readonly string[] }>
+): EvaluationResult {
+  const match = matchSingleLabel(input.submissionContent, validLabels);
+  if (match.outcome === "fail") {
+    return { outcome: "fail", reason: match.reason! };
+  }
+
+  if (!input.payloadItemId || !(input.payloadItemId in groundTruth)) {
+    // Fails closed, per the tester-release requirement that an
+    // unreviewed/ambiguous payload can never PASS. In normal operation this
+    // should not be reachable for a NEW task (taskTemplatesService only
+    // assigns curated payload ids to active-tier templates) -- this is the
+    // defense-in-depth backstop for any task instance generated before that
+    // gate existed.
+    return {
+      outcome: "fail",
+      reason:
+        "This task's specific content has not been fully verified yet, so it cannot " +
+        "be automatically approved. No reward for this attempt -- please try a " +
+        "different task.",
+    };
+  }
+
+  const accepted = groundTruth[input.payloadItemId].acceptedLabels;
+  if (!accepted.includes(match.label!)) {
+    return {
+      outcome: "fail",
+      reason:
+        "Submission's label does not match the reviewed classification for this " +
+        "specific item.",
+    };
+  }
+
+  return {
+    outcome: "pass",
+    reason: `Submission correctly classifies this item as "${match.label}".`,
+  };
+}
+
+const NO_ERROR_PATTERN =
+  /\bno\s+(factual\s+)?(errors?|inaccurac(y|ies))\b(\s+\w+){0,3}\s*\b(found|identified|noted|present)\b|found\s+no\s+errors?/i;
+
+function claimsNoError(content: string): boolean {
+  return NO_ERROR_PATTERN.test(content.trim());
+}
+
+function evaluateA4ActiveTier(input: EvaluationInput): EvaluationResult {
+  if (!input.payloadItemId || !(input.payloadItemId in A4_GROUND_TRUTH)) {
+    return {
+      outcome: "fail",
+      reason:
+        "This task's specific content has not been fully verified yet, so it cannot " +
+        "be automatically approved. No reward for this attempt -- please try a " +
+        "different task.",
+    };
+  }
+
+  const trimmed = input.submissionContent.trim();
+  const truth = A4_GROUND_TRUTH[input.payloadItemId];
+  const claimsClean = claimsNoError(trimmed);
+
+  if (truth.status === "clean") {
+    if (claimsClean) {
+      return {
+        outcome: "pass",
+        reason: "Correctly identified that this paragraph contains no factual errors.",
+      };
+    }
+    return {
+      outcome: "fail",
+      reason: "This paragraph is factually accurate -- the claimed error was not present.",
+    };
+  }
+
+  // truth.status === "flawed"
+  if (claimsClean) {
+    return {
+      outcome: "fail",
+      reason: "This paragraph contains a factual error that the submission did not identify.",
+    };
+  }
+
+  const lower = trimmed.toLowerCase();
+  const foundRealError = (truth.errorTerms ?? []).some((term) =>
+    lower.includes(term.toLowerCase())
+  );
+
+  if (!foundRealError) {
+    return {
+      outcome: "fail",
+      reason:
+        "Submission claims an error but does not identify the specific inaccuracy actually " +
+        "present in this paragraph.",
+    };
+  }
+
+  return {
+    outcome: "pass",
+    reason: "Correctly identified the specific factual error in this paragraph.",
+  };
+}
+
+// Dispatches on the RESOLVED key (a stable literal: "A2"/"A5"/.../"A4"),
+// never on input.templateId directly -- this is what makes the evaluator
+// itself immune to task_templates.id changing on a future reseed. Which
+// real database id maps to which key is entirely resolveActiveTemplate's
+// (and, underneath it, platformGroundTruth.ts's title-based registry's)
+// job, not this function's.
+function evaluateActiveTierSubmission(
+  input: EvaluationInput,
+  key: ActiveTemplateKey
+): EvaluationResult {
+  const safetyFailure = activeTierSafetyCheck(input);
+  if (safetyFailure) return safetyFailure;
+
+  switch (key) {
+    case "A2":
+      return evaluateClassificationActiveTier(input, A2_LABELS, A2_GROUND_TRUTH);
+    case "A5":
+      return evaluateClassificationActiveTier(input, A5_LABELS, A5_GROUND_TRUTH);
+    case "S4":
+      return evaluateClassificationActiveTier(input, S4_LABELS, S4_GROUND_TRUTH);
+    case "R5":
+      return evaluateClassificationActiveTier(input, R5_LABELS, R5_GROUND_TRUTH);
+    case "A4":
+      return evaluateA4ActiveTier(input);
+  }
+}
+
 export class TestnetDeterministicEvaluator implements EvaluationProvider {
   async evaluate(input: EvaluationInput): Promise<EvaluationResult> {
+    const resolution = await resolveActiveTemplate(input.templateId);
+
+    if (resolution.status === "unresolvable") {
+      // The active-template registry itself couldn't be trusted right now
+      // (see platformGroundTruth.ts's own doc comment) -- fails closed to
+      // FAIL, never "review", since this templateId might genuinely belong
+      // to an active-tier template we just can't currently confirm.
+      return {
+        outcome: "fail",
+        reason:
+          "Automated evaluation is temporarily unable to verify this task's template " +
+          "identity. Please try again shortly.",
+      };
+    }
+
+    if (resolution.status === "resolved") {
+      try {
+        return evaluateActiveTierSubmission(input, resolution.key);
+      } catch {
+        // Defense in depth: a rule throwing must never be mistaken for a
+        // pass, and per the tester-release requirement must not become
+        // "review" either -- fails closed to FAIL.
+        return {
+          outcome: "fail",
+          reason: "Automated evaluation could not process this submission.",
+        };
+      }
+    }
+
+    // resolution.status === "not_active" -- legacy path, byte-for-byte
+    // unchanged from before this fix.
     const evaluator = TEMPLATE_EVALUATORS[input.templateId];
 
     if (!evaluator) {
@@ -172,8 +512,6 @@ export class TestnetDeterministicEvaluator implements EvaluationProvider {
     try {
       result = evaluator(input);
     } catch {
-      // Defense in depth: a rule throwing (malformed input, unexpected
-      // shape) must never be mistaken for a pass or a fail.
       return {
         outcome: "review",
         reason: "Automated evaluation could not process this submission.",

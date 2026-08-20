@@ -12,6 +12,7 @@ import {
   recordAssessment,
 } from "@/services/fraud/fraudSignalsService";
 import { TestnetDeterministicEvaluator } from "@/lib/evaluation/testnetDeterministicEvaluator";
+import { isActiveTierTemplate } from "@/lib/evaluation/platformGroundTruth";
 import { log } from "@/lib/log";
 
 // Mirrors TaskDetails.tsx's own splitPayloadDescription exactly (same
@@ -99,6 +100,7 @@ export async function evaluatePlatformSubmissionIfNeeded(
       description: tasks.description,
       creatorId: tasks.creatorId,
       templateId: tasks.templateId,
+      payloadItemId: tasks.payloadItemId,
     })
     .from(tasks)
     .where(eq(tasks.id, application.taskId))
@@ -128,6 +130,7 @@ export async function evaluatePlatformSubmissionIfNeeded(
   }
 
   const { instructions, payload } = splitPayloadDescription(task.description);
+  const isActiveTier = await isActiveTierTemplate(task.templateId);
 
   const evaluator = new TestnetDeterministicEvaluator();
   const evalResult = await evaluator.evaluate({
@@ -135,6 +138,7 @@ export async function evaluatePlatformSubmissionIfNeeded(
     taskTitle: task.title,
     taskDescription: instructions,
     payloadContent: payload,
+    payloadItemId: task.payloadItemId,
     submissionContent: submission.content,
   });
 
@@ -165,12 +169,29 @@ export async function evaluatePlatformSubmissionIfNeeded(
     verdict = "does_not_meet_requirements";
     feedback = evalResult.reason;
   } else if (evalResult.outcome === "review") {
+    // Unreachable for an active-tier template today (its own evaluator
+    // path never returns "review" -- see testnetDeterministicEvaluator.ts's
+    // own top-of-file comment) -- still reachable for a paused template's
+    // already-in-flight application, whose legacy format-only evaluator is
+    // untouched by the tester release.
     decision = "REVIEW";
     verdict = "partially_meets_requirements";
     feedback = evalResult.reason;
+  } else if (riskLevel !== "low" && isActiveTier) {
+    // Tester release (Option A): an active-tier template's submission must
+    // reach a terminal PASS or FAIL, never REVIEW -- there is no human
+    // reviewer for a platform-owned task to hand an elevated-risk case to.
+    // Content passed its own check, but elevated fraud risk is still
+    // sufficient reason to withhold reward; unlike the legacy REVIEW-
+    // downgrade path below, this is a real rejection, not a hold.
+    decision = "REJECTED";
+    verdict = "does_not_meet_requirements";
+    feedback =
+      "This submission was not approved due to elevated automated risk signals on " +
+      "this account or activity pattern, independent of the content itself.";
   } else if (riskLevel !== "low") {
-    // Passed the content check, but fraud policy is conservative:
-    // elevated risk never auto-rejects on its own (see
+    // Legacy (paused-template) path, unchanged: fraud policy is
+    // conservative -- elevated risk never auto-rejects on its own (see
     // computeDeterministicRiskLevel's own doc comment), it only ever
     // downgrades an otherwise-accepted submission to human review.
     decision = "REVIEW";

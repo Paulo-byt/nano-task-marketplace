@@ -13,6 +13,7 @@ import {
   getTaskTemplateId,
   replenishTemplateIfNeeded,
 } from "@/services/marketplace/taskTemplatesService";
+import { isActiveTierTemplate } from "@/lib/evaluation/platformGroundTruth";
 import {
   createApplicationSubmittedNotification,
   createNewApplicationNotification,
@@ -116,6 +117,26 @@ export async function POST(request: Request) {
     );
   }
 
+  // Tester catalog visibility: hoisted here (and reused for the
+  // auto-approval branch below, instead of a second call) so a NEW
+  // application is blocked even if someone bypasses the marketplace
+  // listing filter and posts directly to this route for an old, still-open
+  // instance of a now-paused template. Reuses the exact same "not_open"
+  // status/response shape the funding/status checks above already use --
+  // from an applicant's perspective, "this template was paused" and "this
+  // task stopped accepting applications" are the same fact, and
+  // ConfirmApplicationButton.tsx already renders that state correctly with
+  // no UI change needed. Ordinary creator-owned tasks (templateId null)
+  // are completely unaffected -- isActiveTierTemplate(null) is false, but
+  // the check below only fires when templateId is non-null.
+  const applyTemplateId = await getTaskTemplateId(taskId);
+  if (applyTemplateId && !(await isActiveTierTemplate(applyTemplateId))) {
+    return NextResponse.json(
+      { status: "not_open", error: "This task is no longer accepting applications." },
+      { status: 409 }
+    );
+  }
+
   let application;
   try {
     application = await createApplication(taskId, sessionUser.id);
@@ -185,8 +206,7 @@ export async function POST(request: Request) {
   // if this loses that race -- it stays "applied" on the now-closed task,
   // the exact same state an ordinary task's un-approved applicants are
   // already left in today.
-  const templateId = await getTaskTemplateId(taskId);
-  if (!templateId) {
+  if (!applyTemplateId) {
     return NextResponse.json({ status: "created" }, { status: 201 });
   }
 
@@ -201,7 +221,7 @@ export async function POST(request: Request) {
     response.payoutId = result.payoutId;
 
     try {
-      await replenishTemplateIfNeeded(templateId, taskId);
+      await replenishTemplateIfNeeded(applyTemplateId, taskId);
     } catch (err) {
       log.error("apply_auto_approval_replenishment_failed", {
         applicationId: application.id,

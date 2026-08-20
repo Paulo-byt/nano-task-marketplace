@@ -2,6 +2,7 @@ import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { applications, payouts, submissions, tasks, users } from "@/db/schema";
 import { getLatestAssessmentsForApplications } from "@/services/fraud/fraudSignalsService";
+import { isActiveTierTemplate } from "@/lib/evaluation/platformGroundTruth";
 import type { MyTask } from "@/types/application";
 import type { Applicant } from "@/types/postedTask";
 
@@ -102,13 +103,20 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
       taskFundingStatus: tasks.fundingStatus,
       // LEFT join: only approved applications the worker has acted on have
       // a submission row at all -- null means "not submitted yet," not an
-      // error. The verdict/feedback fields are still deliberately not
-      // selected here: the worker's own view never exposes the AI
-      // verdict/feedback (Step 13 decision), only whether/what they
-      // submitted, and (11D Step 4) only whether it has been looked at yet
-      // -- evaluatedAt is a timestamp, not a judgment.
+      // error. evaluatedAt (a timestamp, not a judgment) still backs
+      // isReviewed below. The verdict/feedback fields ARE now selected --
+      // see the isPlatformTask gate in the map below for why this reverses
+      // Step 13's original creator-only decision specifically for a
+      // platform-owned task, where the worker is the only person who will
+      // ever see the result at all.
       submissionContent: submissions.content,
       evaluatedAt: submissions.evaluatedAt,
+      evaluationVerdict: submissions.evaluationVerdict,
+      evaluationFeedback: submissions.evaluationFeedback,
+      // Already INNER JOINed above -- no new join. Used only to gate
+      // evaluationVerdict/evaluationFeedback exposure and to compute
+      // isActiveTierTask below; never returned itself.
+      taskTemplateId: tasks.templateId,
       // LEFT join: mirrors getApplicantsForTask's own payout join below
       // exactly -- only an approved application ever gets a payout row at
       // all, so null here means "no payout yet," not an error.
@@ -130,20 +138,36 @@ export async function getMyTasks(applicantId: string): Promise<MyTask[]> {
     .where(eq(applications.applicantId, applicantId))
     .orderBy(desc(applications.appliedAt));
 
-  return rows.map((row) => ({
-    applicationId: row.applicationId,
-    taskId: row.taskId,
-    taskTitle: row.taskTitle,
-    rewardUsdc: Number(row.rewardUsdc),
-    status: row.status,
-    appliedAt: formatDate(row.appliedAt),
-    hasSubmission: row.submissionContent !== null,
-    submissionContent: row.submissionContent ?? null,
-    payoutStatus: row.payoutStatus ?? null,
-    payoutId: row.payoutId ?? null,
-    taskFundingStatus: row.taskFundingStatus,
-    isReviewed: row.evaluatedAt !== null,
-  }));
+  // isActiveTierTemplate is now async (title-based DB resolution, cached --
+  // see platformGroundTruth.ts) rather than a pure in-memory Set lookup, so
+  // this can no longer be a plain synchronous .map(). Promise.all is safe
+  // and cheap here: every call after the first hits the module-level cache
+  // inside isActiveTierTemplate and resolves without a new query, and this
+  // list is dashboard-scale (one worker's own applications), never a hot,
+  // high-fanout path.
+  return Promise.all(
+    rows.map(async (row) => {
+      const isPlatformTask = row.taskTemplateId !== null;
+      const isActiveTierTask = await isActiveTierTemplate(row.taskTemplateId);
+      return {
+        applicationId: row.applicationId,
+        taskId: row.taskId,
+        taskTitle: row.taskTitle,
+        rewardUsdc: Number(row.rewardUsdc),
+        status: row.status,
+        appliedAt: formatDate(row.appliedAt),
+        hasSubmission: row.submissionContent !== null,
+        submissionContent: row.submissionContent ?? null,
+        payoutStatus: row.payoutStatus ?? null,
+        payoutId: row.payoutId ?? null,
+        taskFundingStatus: row.taskFundingStatus,
+        isReviewed: row.evaluatedAt !== null,
+        evaluationVerdict: isPlatformTask ? (row.evaluationVerdict ?? null) : null,
+        evaluationFeedback: isPlatformTask ? (row.evaluationFeedback ?? null) : null,
+        isActiveTierTask,
+      };
+    })
+  );
 }
 
 /**
@@ -242,6 +266,13 @@ export interface MyApplicationForTask {
   // the same payouts row the M6 orchestration service itself transitions,
   // never a second source of truth.
   payoutStatus: "pending" | "completed" | "failed" | "cancelled" | "retrying" | null;
+  // Tester release (Option A): whether this task belongs to one of the 5
+  // active-tier templates, whose payout is now explicit-claim rather than
+  // automatic -- gates whether TaskDetails renders a Claim Reward action at
+  // all. False for every creator-owned and paused-tier task, which keep
+  // their existing (automatic, for platform tasks; manual creator release,
+  // for ordinary ones) payout paths completely unchanged.
+  isActiveTierTask: boolean;
 }
 
 /**
@@ -291,6 +322,7 @@ export async function getMyApplicationForTask(
   }
 
   const isPlatformTask = row.taskTemplateId !== null;
+  const isActiveTierTask = await isActiveTierTemplate(row.taskTemplateId);
 
   return {
     applicationId: row.applicationId,
@@ -301,6 +333,7 @@ export async function getMyApplicationForTask(
     evaluationVerdict: isPlatformTask ? (row.evaluationVerdict ?? null) : null,
     evaluationFeedback: isPlatformTask ? (row.evaluationFeedback ?? null) : null,
     payoutStatus: isPlatformTask ? (row.payoutStatus ?? null) : null,
+    isActiveTierTask,
   };
 }
 

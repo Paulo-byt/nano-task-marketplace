@@ -3,6 +3,7 @@ import type { MyApplicationForTask } from "@/services/applications/applicationsS
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { FundTaskButton } from "@/components/marketplace/FundTaskButton";
 import { SubmitWorkButton } from "@/components/dashboard/SubmitWorkButton";
+import { ClaimRewardButton } from "@/components/dashboard/ClaimRewardButton";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
@@ -25,24 +26,52 @@ const WORKSPACE_CONTAINER_STYLES: Record<WorkspaceTone, string> = {
  * (getMyApplicationForTask), so it naturally falls through to "Submitted
  * -- awaiting evaluation" here, unchanged from M4's own original message --
  * this function does not need its own platform-vs-creator branch.
+ *
+ * Tester release (Option A): for an active-tier task specifically
+ * (app.isActiveTierTask), an accepted submission now reads "Passed" with
+ * reward eligibility handed off to a separate Claim Reward action, rather
+ * than "Accepted -- payout processing" -- payout is no longer automatic
+ * for these templates. A paused-tier or creator-owned task keeps the
+ * original automatic-payout wording unchanged. "Rejected" is renamed to
+ * "Failed" to match the tester-release spec's required wording; nothing
+ * about what triggers it changes. evaluationVerdict === null still falls
+ * through to "Submitted -- awaiting evaluation" as a safety-net label only
+ * -- for an active-tier task this should be effectively unreachable in
+ * practice, since evaluation runs synchronously before the submit request
+ * even returns.
  */
 function describeWorkspaceState(app: MyApplicationForTask): {
   tone: WorkspaceTone;
   badgeLabel: string;
   message: string;
+  showClaim: boolean;
 } {
   if (!app.hasSubmission) {
-    return { tone: "success", badgeLabel: "Active", message: "You're working on this task" };
+    return {
+      tone: "success",
+      badgeLabel: "Active",
+      message: "You're working on this task",
+      showClaim: false,
+    };
   }
   if (app.evaluationVerdict === "meets_requirements") {
     if (app.payoutStatus === "completed") {
-      return { tone: "success", badgeLabel: "Paid", message: "Paid" };
+      return { tone: "success", badgeLabel: "Paid", message: "Paid", showClaim: false };
+    }
+    if (app.isActiveTierTask) {
+      return {
+        tone: "success",
+        badgeLabel: "Passed",
+        message: "Passed — this reward is ready to claim",
+        showClaim: true,
+      };
     }
     if (app.payoutStatus === "failed") {
       return {
         tone: "error",
         badgeLabel: "Payout Failed",
         message: "Payout failed — requires attention",
+        showClaim: false,
       };
     }
     // pending, retrying, cancelled, or (defensively) null: an accepted
@@ -54,13 +83,15 @@ function describeWorkspaceState(app: MyApplicationForTask): {
       tone: "success",
       badgeLabel: "Accepted",
       message: "Accepted — payout processing",
+      showClaim: false,
     };
   }
   if (app.evaluationVerdict === "does_not_meet_requirements") {
     return {
       tone: "error",
-      badgeLabel: "Rejected",
-      message: "Rejected — submission did not meet the requirements",
+      badgeLabel: "Failed",
+      message: "Failed — submission did not meet the requirements",
+      showClaim: false,
     };
   }
   if (app.evaluationVerdict === "partially_meets_requirements") {
@@ -68,9 +99,15 @@ function describeWorkspaceState(app: MyApplicationForTask): {
       tone: "warning",
       badgeLabel: "Under Review",
       message: "Under review — additional review is required",
+      showClaim: false,
     };
   }
-  return { tone: "info", badgeLabel: "Submitted", message: "Submitted — awaiting evaluation" };
+  return {
+    tone: "info",
+    badgeLabel: "Under Review",
+    message: "Under Review — evaluation in progress",
+    showClaim: false,
+  };
 }
 
 const DIFFICULTY_TONES: Record<Task["difficulty"], "success" | "warning" | "error"> = {
@@ -146,6 +183,7 @@ function splitPayloadDescription(description: string): DescriptionParts {
 export async function TaskDetails({
   task,
   myApplication,
+  isApplyable = true,
 }: {
   task: Task;
   // M4 (active-task workspace): the viewer's own application for this
@@ -156,6 +194,14 @@ export async function TaskDetails({
   // application means the same thing -- the viewer may work on it now --
   // so no separate platform-specific branch exists, or is needed.
   myApplication?: MyApplicationForTask;
+  // Tester catalog visibility: false only for a platform task whose
+  // template has been paused, computed server-side by the page (never by
+  // this component). Defaults to true so every other caller/prior behavior
+  // is completely unaffected. Deliberately consulted ONLY in the
+  // no-existing-application branch below -- an applicant who already has
+  // an application on this task keeps their full existing workspace
+  // regardless of this flag, exactly as required.
+  isApplyable?: boolean;
 }) {
   // Server Component: resolved server-side according to the active
   // PAYOUT_CUSTODY_MODE, then passed down as a plain address string --
@@ -232,15 +278,24 @@ export async function TaskDetails({
           </div>
 
           {myApplication.hasSubmission ? (
-            <div className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
-              <span className="mb-1 block font-medium text-foreground">
-                Your submission
-              </span>
-              {myApplication.submissionContent}
-              {myApplication.evaluationFeedback && (
-                <p className="mt-2 border-t border-border pt-2 text-zinc-500">
-                  {myApplication.evaluationFeedback}
-                </p>
+            <div className="flex flex-col gap-3">
+              <div className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <span className="mb-1 block font-medium text-foreground">
+                  Your submission
+                </span>
+                {myApplication.submissionContent}
+                {myApplication.evaluationFeedback && (
+                  <p className="mt-2 border-t border-border pt-2 text-zinc-500">
+                    <span className="font-medium text-foreground">Feedback: </span>
+                    {myApplication.evaluationFeedback}
+                  </p>
+                )}
+              </div>
+              {workspaceState.showClaim && (
+                <ClaimRewardButton
+                  taskId={task.id}
+                  applicationId={myApplication.applicationId}
+                />
               )}
             </div>
           ) : (
@@ -249,6 +304,20 @@ export async function TaskDetails({
               applicationId={myApplication.applicationId}
             />
           )}
+        </div>
+      ) : !myApplication && !isApplyable ? (
+        // Tester catalog visibility: direct navigation to an old, still-open
+        // instance of a now-paused template, with no existing application on
+        // it. The task row itself is untouched (not deleted, not
+        // reassigned) -- this is purely a display decision blocking a NEW
+        // application; anyone who already has an application for this exact
+        // task still sees their full, working workspace above, unaffected.
+        <div className="rounded-xl border border-border bg-surface-muted p-5 text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="font-medium text-foreground">This task is no longer available.</p>
+          <p className="mt-1">It isn&apos;t currently accepting new applications.</p>
+          <Button href="/marketplace" variant="secondary" size="sm" className="mt-4">
+            Back to Marketplace
+          </Button>
         </div>
       ) : (
         <div className="flex flex-col gap-3 sm:flex-row">

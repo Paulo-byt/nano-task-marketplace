@@ -117,6 +117,12 @@ export const RATE_LIMITS = {
   applicationPayout: { limit: 10, windowMs: HOUR },
   applicationRetryPayout: { limit: 10, windowMs: HOUR },
   applicationSubmit: { limit: 30, windowMs: HOUR },
+  // Tester release (Option A): sensitive, real-money action -- same
+  // conservative posture as applicationPayout/applicationRetryPayout, not
+  // the higher limits given to ordinary read/browse actions. A genuine
+  // worker claims a given reward exactly once; this limit exists to bound
+  // retry storms, not ordinary use.
+  applicationClaim: { limit: 10, windowMs: HOUR },
   applicationEvaluate: { limit: 5, windowMs: HOUR },
   applicationAnalyzeFraudRisk: { limit: 5, windowMs: HOUR },
   aiGenerateTask: { limit: 10, windowMs: HOUR },
@@ -131,6 +137,10 @@ export const RATE_LIMITS = {
   // flow that still submits a real Circle transaction) -- kept at the same
   // conservative limit as operatorTreasuryFund, not higher.
   operatorTreasuryAllowance: { limit: 10, windowMs: HOUR },
+  // Post-M6: read-only, moves no funds and submits no transaction -- can
+  // be polled far more freely than the two write-capable operatorTreasury*
+  // limits above.
+  operatorTreasuryHealth: { limit: 60, windowMs: MINUTE },
   // 11E: no funds move, but still a write -- kept well above
   // authenticatedRead's own ceiling since clicking through several
   // notifications in a row is ordinary use, not abuse.

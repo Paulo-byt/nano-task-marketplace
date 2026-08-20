@@ -39,6 +39,12 @@ export interface EvaluationInput {
    * TaskDetails.tsx already splits it for display (see
    * splitPayloadDescription), not re-derived independently here. */
   payloadContent: string | null;
+  /** Tester release (Option A): the specific payload_items.id this task
+   * instance was generated with, null for a self-contained template.
+   * Lets a provider look up curated ground truth (lib/evaluation/
+   * platformGroundTruth.ts) keyed by the real row id rather than guessing
+   * from content alone. */
+  payloadItemId: string | null;
   submissionContent: string;
 }
 

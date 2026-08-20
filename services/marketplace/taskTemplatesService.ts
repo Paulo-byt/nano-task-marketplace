@@ -1,4 +1,4 @@
-import { and, asc, eq, exists, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNull, sql } from "drizzle-orm";
 import { parseUnits, type Address } from "viem";
 import { db } from "@/db";
 import {
@@ -6,12 +6,14 @@ import {
   payloadSources,
   taskTemplates,
   taskTemplateGenerationEvents,
+  taskTemplateStatusEnum,
   templatePayloadModeEnum,
   tasks,
   users,
 } from "@/db/schema";
 import { getOrCreateUserByWallet } from "@/services/users/walletUser";
 import { replenishPayloadSupplyIfNeeded } from "@/services/marketplace/payloadSourcesService";
+import { getCuratedPayloadItemIds } from "@/lib/evaluation/platformGroundTruth";
 import { getExecutorAddress } from "@/lib/arc/payoutRelay";
 import { verifyApprovalTransaction } from "@/lib/arc/verifyApproval";
 import { USDC_DECIMALS } from "@/lib/arc/tokens";
@@ -31,6 +33,7 @@ const MAX_REWARD_USDC = 5.0;
 
 export class InvalidTemplateInputError extends Error {}
 export class PlatformAccountMisconfiguredError extends Error {}
+export class TemplateNotFoundForStatusError extends Error {}
 
 /**
  * Phase B (never-ending platform task supply) sentinel identity -- the EVM
@@ -233,6 +236,44 @@ export async function getTemplateById(id: string) {
     .limit(1);
 
   return rows[0];
+}
+
+/**
+ * Sets a template's status -- 'active'/'paused'/'archived', the same three
+ * values task_template_status has always defined. Mirrors
+ * payloadSourcesService.pausePayloadSource's shape exactly: touches ONLY
+ * task_templates.status, never any existing task, application, or payload
+ * item. Setting a template to 'paused' is what makes generateTaskInstance's
+ * own conditional UPDATE (status='active' in its WHERE clause, see below)
+ * stop matching this template's row -- new-instance generation for it
+ * degrades to the ordinary, already-existing "insufficient_capacity"
+ * outcome, exactly like a pool genuinely out of funding. Nothing about an
+ * already-generated task, an in-flight application, or a pending
+ * submission for this template is touched or orphaned by this call.
+ *
+ * Tester release (Option A): used to pause the 6 non-active-tier templates
+ * for new generation while their own already-open/in-flight activity keeps
+ * working exactly as before.
+ */
+export async function setTaskTemplateStatus(
+  templateId: string,
+  status: (typeof taskTemplateStatusEnum.enumValues)[number]
+) {
+  if (!UUID_RE.test(templateId)) {
+    throw new TemplateNotFoundForStatusError(`No task template with id "${templateId}" exists.`);
+  }
+
+  const [updated] = await db
+    .update(taskTemplates)
+    .set({ status, updatedAt: new Date() })
+    .where(eq(taskTemplates.id, templateId))
+    .returning();
+
+  if (!updated) {
+    throw new TemplateNotFoundForStatusError(`No task template with id "${templateId}" exists.`);
+  }
+
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -623,6 +664,16 @@ export async function generateTaskInstance(
   templateId: string,
   triggerKey: string
 ): Promise<GenerationAttemptResult> {
+  // Resolved BEFORE the transaction starts, not inside it: this is now an
+  // async, DB-backed lookup (title-based active-template resolution, see
+  // platformGroundTruth.ts), and must run on its own connection rather than
+  // mid-transaction against a different table the transaction below never
+  // otherwise touches. templateId itself never changes for the lifetime of
+  // this call, so resolving once up front is exactly equivalent to
+  // resolving it inside the transaction, just without holding the
+  // transaction open across an extra network round trip.
+  const curatedIds = await getCuratedPayloadItemIds(templateId);
+
   return db.transaction(async (tx) => {
     let eventId: string;
     try {
@@ -677,6 +728,15 @@ export async function generateTaskInstance(
     let claimedItem: typeof payloadItems.$inferSelect | undefined;
 
     if (reserved.payloadMode === "payload_sourced") {
+      // Tester release (Option A): for an active-tier template, a payload
+      // item is only ever eligible for a NEW assignment once a human has
+      // actually curated an expected answer for it (see
+      // lib/evaluation/platformGroundTruth.ts) -- an ambiguous/unreviewed
+      // item must never reach a tester at all, not merely fail evaluation
+      // after the fact. null (no restriction) for every other template, so
+      // this is a no-op, byte-for-byte unchanged query, for every
+      // self_contained/paused-tier/creator-owned template. curatedIds was
+      // already resolved above, before this transaction started.
       const [candidate] = await tx
         .select({ id: payloadItems.id })
         .from(payloadItems)
@@ -684,7 +744,8 @@ export async function generateTaskInstance(
           and(
             eq(payloadItems.templateId, templateId),
             eq(payloadItems.status, "available"),
-            activeSourceExists()
+            activeSourceExists(),
+            ...(curatedIds ? [inArray(payloadItems.id, [...curatedIds])] : [])
           )
         )
         .orderBy(asc(payloadItems.createdAt))

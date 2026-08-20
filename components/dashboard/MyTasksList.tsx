@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { MyTask } from "@/types/application";
 import { SubmitWorkButton } from "@/components/dashboard/SubmitWorkButton";
+import { ClaimRewardButton } from "@/components/dashboard/ClaimRewardButton";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 
@@ -58,6 +59,58 @@ function describeStatus(task: MyTask): { label: string; tone: BadgeTone } {
   }
 
   return { label: "Not selected", tone: STATUS_TONES.rejected };
+}
+
+/**
+ * Tester release (Option A): derives the submission-result badge purely
+ * from evaluationVerdict, never from isReviewed alone -- isReviewed only
+ * ever meant "an evaluation ran," not "it passed," which is exactly what
+ * made the old "Reviewed" badge collide with TaskDetails.tsx's own
+ * "Under Review" for the same submission. evaluationVerdict is null in
+ * exactly two cases: a creator-owned task (verdict intentionally hidden
+ * from the worker, unchanged Step 13 decision -- isReviewed still
+ * distinguishes "creator looked at it" from "not yet"), or a platform task
+ * genuinely not evaluated yet. "partially_meets_requirements" is only
+ * reachable for a paused-tier template's own already-in-flight legacy
+ * submission (see testnetDeterministicEvaluator.ts) -- never for an
+ * active-tier template going forward.
+ */
+function describeSubmissionResult(task: MyTask): {
+  label: string;
+  tone: BadgeTone;
+  feedback: string | null;
+  showClaim: boolean;
+} {
+  if (task.evaluationVerdict === "meets_requirements") {
+    return {
+      label: "Passed",
+      tone: "success",
+      feedback: task.evaluationFeedback,
+      showClaim: task.isActiveTierTask && task.payoutStatus !== "completed",
+    };
+  }
+  if (task.evaluationVerdict === "does_not_meet_requirements") {
+    return {
+      label: "Failed",
+      tone: "error",
+      feedback: task.evaluationFeedback,
+      showClaim: false,
+    };
+  }
+  if (task.evaluationVerdict === "partially_meets_requirements") {
+    return {
+      label: "Under Review",
+      tone: "warning",
+      feedback: task.evaluationFeedback,
+      showClaim: false,
+    };
+  }
+  return {
+    label: task.isReviewed ? "Reviewed" : "Under Review",
+    tone: task.isReviewed ? "success" : "info",
+    feedback: null,
+    showClaim: false,
+  };
 }
 
 export function MyTasksList({ tasks }: { tasks: MyTask[] }) {
@@ -137,19 +190,28 @@ export function MyTasksList({ tasks }: { tasks: MyTask[] }) {
                     applicationId={task.applicationId}
                   />
                 )}
-                {task.hasSubmission && (
-                  <div className="rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
-                    <div className="mb-1 flex items-center gap-2">
-                      <span className="font-medium text-foreground">
-                        Your submission
-                      </span>
-                      <Badge tone={task.isReviewed ? "success" : "info"}>
-                        {task.isReviewed ? "Reviewed" : "Awaiting review"}
-                      </Badge>
-                    </div>
-                    {task.submissionContent}
-                  </div>
-                )}
+                {task.hasSubmission &&
+                  (() => {
+                    const result = describeSubmissionResult(task);
+                    return (
+                      <div className="flex flex-col gap-2 rounded-lg border border-border bg-surface-muted px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-foreground">Your submission</span>
+                          <Badge tone={result.tone}>{result.label}</Badge>
+                        </div>
+                        <p>{task.submissionContent}</p>
+                        {result.feedback && (
+                          <p className="border-t border-border pt-2 text-foreground">
+                            <span className="font-medium">Feedback: </span>
+                            {result.feedback}
+                          </p>
+                        )}
+                        {result.showClaim && (
+                          <ClaimRewardButton taskId={task.taskId} applicationId={task.applicationId} />
+                        )}
+                      </div>
+                    );
+                  })()}
               </li>
             );
           })}

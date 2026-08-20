@@ -8,6 +8,7 @@ import {
   taskTemplates,
   tasks,
 } from "@/db/schema";
+import { log } from "@/lib/log";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -314,11 +315,28 @@ export const PAYLOAD_MAX_AVAILABLE = 50;
 // automatic retries of a failed batch.
 const MAX_BATCH_ATTEMPTS = 3;
 
+/**
+ * Tester release, no-Anthropic-credits period: the single, obvious switch
+ * for whether replenishPayloadSupplyIfNeeded is allowed to call the
+ * Anthropic-backed generatePayloadContent at all. Flip to true to restore
+ * the original automatic-replenishment behavior once Anthropic credits are
+ * available again -- nothing else about this file changes either way.
+ * Deliberately a plain, greppable, top-level constant rather than an env
+ * var: an env var could differ between local/preview/production without
+ * anyone noticing, which is exactly wrong for a switch whose entire
+ * purpose is "never call Anthropic unexpectedly." Existing seeded payload
+ * items (payload_items rows already in the database) are completely
+ * unaffected either way -- this only gates whether NEW items get
+ * AI-generated once a source runs low.
+ */
+export const AI_PAYLOAD_REPLENISHMENT_ENABLED = false;
+
 export type PayloadReplenishOutcome =
   | "sufficient"
   | "at_ceiling"
   | "no_active_source"
   | "provider_unavailable"
+  | "ai_replenishment_disabled"
   | "no_new_content"
   | "replenished";
 
@@ -443,6 +461,24 @@ export async function replenishPayloadSupplyIfNeeded(
   );
   if (needed <= 0) {
     return { outcome: "at_ceiling", added: 0, availableAfter: availableBefore };
+  }
+
+  if (!AI_PAYLOAD_REPLENISHMENT_ENABLED) {
+    // No-Anthropic-credits tester period: fails safe. A template simply
+    // stops generating new instances once its curated/seeded payload runs
+    // out ("sold out"), the same ordinary "insufficient_capacity"-shaped
+    // outcome generateTaskInstance already handles for a pool-exhausted
+    // template -- never an unexpected Anthropic call, never a failed
+    // request for whatever best-effort caller triggered this.
+    log.info("payload_replenishment_skipped_ai_disabled", {
+      templateId,
+      availableBefore,
+    });
+    return {
+      outcome: "ai_replenishment_disabled",
+      added: 0,
+      availableAfter: availableBefore,
+    };
   }
 
   const [template] = await db

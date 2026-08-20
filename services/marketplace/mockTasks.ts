@@ -1,6 +1,6 @@
 import { and, desc, eq, ilike, inArray, lt, or, sql, type SQL } from "drizzle-orm";
 import { db } from "@/db";
-import { applications, payouts, tasks, users } from "@/db/schema";
+import { applications, payouts, taskTemplates, tasks, users } from "@/db/schema";
 import type { Task } from "@/types/task";
 import type { PostedTask } from "@/types/postedTask";
 
@@ -116,6 +116,24 @@ export async function getTasks(options: GetTasksOptions): Promise<TaskPage> {
   const conditions: SQL[] = [
     eq(tasks.status, "open"),
     eq(tasks.fundingStatus, "funded"),
+    // Tester catalog visibility: a creator-owned task (templateId null) is
+    // always eligible, unaffected by any of this. A platform-generated
+    // task is only listed while its own template is still 'active' --
+    // paused templates (the 6 non-active-tier ones) stop appearing here
+    // even though their already-generated, still-open instances are left
+    // exactly as they are in the database (this is a read-time filter,
+    // never a delete/update of the tasks themselves). This is what closes
+    // the gap that let a tester browse to and apply for an existing,
+    // already-open instance of a paused template, whose legacy evaluator
+    // can still land in permanent REVIEW.
+    sql`(
+      ${tasks.templateId} IS NULL
+      OR EXISTS (
+        SELECT 1 FROM ${taskTemplates}
+        WHERE ${taskTemplates.id} = ${tasks.templateId}
+          AND ${taskTemplates.status} = 'active'
+      )
+    )`,
   ];
 
   if (viewerId) {

@@ -1,5 +1,6 @@
 import type { Payout } from "@/types/dashboard";
 import type { Task } from "@/types/task";
+import type { SubmissionVerdict } from "@/services/submissions/submissionsService";
 
 export interface MyTask {
   applicationId: string;
@@ -26,9 +27,25 @@ export interface MyTask {
   taskFundingStatus: Task["fundingStatus"];
   // 11D Step 4: whether an evaluation has ever been recorded for this
   // application's submission -- derived from submissions.evaluatedAt
-  // (a timestamp), never from the verdict/feedback themselves. The Step 13
-  // decision to keep the actual verdict/feedback creator-only is
-  // unchanged; this is coarser than that, "has someone looked at it yet,"
-  // nothing about what they concluded.
+  // (a timestamp), never from the verdict/feedback themselves. Originally
+  // creator-only (Step 13); the tester release (Option A) reverses that
+  // specifically for a platform-owned/active-tier task, where the worker
+  // IS the only person who will ever see the result -- see
+  // evaluationVerdict/evaluationFeedback below. isReviewed itself keeps its
+  // original, coarser meaning ("has an evaluation run at all") and must
+  // never be read as "passed."
   isReviewed: boolean;
+  // Tester release (Option A): the actual terminal verdict, non-null only
+  // for a platform-owned task (mirrors getMyApplicationForTask's own
+  // isPlatformTask gating in applicationsService.ts) -- a creator-owned
+  // task's verdict remains null here regardless of whether one exists,
+  // unchanged from the original Step 13 decision for that case. This is
+  // what MyTasksList/TaskDetails use to render Passed/Failed, never
+  // isReviewed alone.
+  evaluationVerdict: SubmissionVerdict | null;
+  evaluationFeedback: string | null;
+  // Tester release (Option A): mirrors MyApplicationForTask's own field --
+  // whether this task's payout is explicit-claim (the 5 active-tier
+  // templates) rather than automatic. Gates the Claim Reward action.
+  isActiveTierTask: boolean;
 }

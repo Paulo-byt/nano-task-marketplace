@@ -9,6 +9,7 @@ import {
 } from "@/services/submissions/submissionsService";
 import { evaluatePlatformSubmissionIfNeeded } from "@/services/marketplace/platformSubmissionEvaluationService";
 import { processPlatformPayoutIfEligible } from "@/services/marketplace/platformPayoutService";
+import { isActiveTierTemplate } from "@/lib/evaluation/platformGroundTruth";
 import {
   getTaskTemplateId,
 } from "@/services/marketplace/taskTemplatesService";
@@ -187,7 +188,20 @@ export async function POST(
         }
       }
 
-      if (evaluation.status === "processed" && evaluation.decision === "ACCEPTED") {
+      // Tester release (Option A): an active-tier template's payout is no
+      // longer automatic -- the worker must explicitly Claim Reward (see
+      // the claim route), which calls this exact same
+      // processPlatformPayoutIfEligible primitive on demand instead of
+      // here. A paused template's already-in-flight application (not
+      // active-tier) keeps the original automatic-payout behavior
+      // unchanged, since nothing about its workflow changed.
+      const payoutTemplateId = await getTaskTemplateId(taskId);
+      const payoutIsActiveTier = await isActiveTierTemplate(payoutTemplateId);
+      if (
+        evaluation.status === "processed" &&
+        evaluation.decision === "ACCEPTED" &&
+        !payoutIsActiveTier
+      ) {
         // M6: a real on-chain payout can take long enough that running it
         // inside this request would make the tasker's submit call hang on
         // a transfer they have no reason to wait for. after() (next/server)

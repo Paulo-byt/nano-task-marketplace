@@ -54,6 +54,20 @@ export function MyTasksContainer() {
     queryKey: ["my-tasks", address],
     queryFn: fetchMyTasks,
     enabled: isAuthenticated,
+    // Tester release (Option A): a lightweight consistency net, not a
+    // substitute for the evaluator -- active-tier evaluation is
+    // synchronous and already resolved by the time the submit request
+    // returns (see SubmitWorkButton's own invalidateQueries+router.refresh
+    // right after a successful submit). This only covers the rare gap
+    // where this specific tab wasn't the one that submitted (e.g. a second
+    // open tab), and stops polling the moment nothing is actually pending.
+    refetchInterval: (query) => {
+      const tasks = query.state.data as MyTask[] | undefined;
+      const hasPending = tasks?.some(
+        (task) => task.hasSubmission && task.evaluationVerdict === null
+      );
+      return hasPending ? 5000 : false;
+    },
   });
 
   if (!isConnected) {
